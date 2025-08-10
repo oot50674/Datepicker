@@ -32,7 +32,7 @@
   });
 ```
 
-### 인라인 렌더링 + 우측 패널 배치 예시
+### 인라인 렌더링 + 컨테이너에 배치 예시
 ```html
 <input id="inlineInput" type="text" />
 <div id="inlinePane"></div>
