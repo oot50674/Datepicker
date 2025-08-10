@@ -87,9 +87,6 @@
 ### 스타일 커스터마이즈
 `Datepicker.css`에서 CSS 변수와 클래스(`.dp`, `.dp-day`, `.dp-time`, `.dp-clock` 등)를 수정해 테마를 변경할 수 있습니다.
 
-### 브라우저 지원
-현대 브라우저 최신 버전(Chromium/Firefox/Safari/Edge)에서 동작합니다.
-
 ### 라이선스
 MIT License
 
