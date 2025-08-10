@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DatePicker Demo</title>
+    <link rel="stylesheet" href="Datepicker.css" />
+    <style>
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Noto Sans, Arial, sans-serif; padding: 24px; background:#f8fafc; color:#0f172a; }
+      .demo-card { max-width: 1000px; margin: 0 auto; background:#ffffff; border:1px solid #e5e7eb; border-radius: 12px; padding: 20px; box-shadow: 0 10px 20px rgba(0,0,0,0.04); }
+      .field { display:flex; gap: 10px; align-items:center; margin: 12px 0; }
+      input[type="text"] { width: 220px; padding: 10px 12px; border:1px solid #e5e7eb; border-radius: 8px; font-size:14px; }
+      input[type="text"]:focus { outline: 2px solid #93c5fd; outline-offset: 2px; }
+      .hint { color:#64748b; font-size: 12px; }
+      .row { display: flex; gap: 16px; flex-wrap: wrap; }
+      .layout { display: grid; grid-template-columns: 1fr 320px; gap: 16px; }
+      .pane { border: 1px dashed #cbd5e1; border-radius: 12px; padding: 12px; background:#f9fafb; }
+      .pane h3 { margin: 4px 0 8px 0; font-size: 14px; color:#334155; }
+    </style>
+  </head>
+  <body>
+      <div class="demo-card">
+      <h2>Pure JS DatePicker Demo</h2>
+      <p class="hint">입력창을 클릭하면 데이트피커가 열립니다. 헤더의 셀렉트로 연/월을 변경할 수 있고, 기본 포맷은 yyyy-MM-dd 입니다.</p>
+
+      <div class="layout">
+        <div class="pane">
+          <div class="row">
+            <div>
+              <label class="hint" for="dp1">기본</label>
+              <div class="field">
+                <input id="dp1" type="text" placeholder="yyyy-MM-dd" data-datepicker />
+              </div>
+            </div>
+
+            <div>
+              <label class="hint" for="dp2">포맷 변경 (dd/MM/yyyy)</label>
+              <div class="field">
+                <input id="dp2" type="text" placeholder="dd/MM/yyyy" />
+              </div>
+            </div>
+
+            <div>
+              <label class="hint" for="dp4">시간 포함 (yyyy-MM-dd HH:mm, step 10m)</label>
+              <div class="field">
+                <input id="dp4" type="text" placeholder="yyyy-MM-dd HH:mm" />
+              </div>
+            </div>
+
+            <div>
+              <label class="hint" for="dp5">연/월 셀렉트 + 범위 (2020–2026)</label>
+              <div class="field">
+                <input id="dp5" type="text" placeholder="yyyy-MM-dd" />
+              </div>
+            </div>
+
+        <div>
+          <label class="hint" for="dp6">시계 포함(팝오버, yyyy-MM-dd HH:mm)</label>
+          <div class="field">
+            <input id="dp6" type="text" placeholder="yyyy-MM-dd HH:mm" />
+          </div>
+        </div>
+          </div>
+        </div>
+
+        <div id="inlinePane" class="pane">
+          <div>
+            <label class="hint" for="dp3">인라인</label>
+            <div class="field" style="flex-direction:column; align-items:flex-start;">
+              <input id="dp3" type="text" placeholder="yyyy-MM-dd" />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="Datepicker.js"></script>
+    <script>
+      // Customized instance with format dd/MM/yyyy and Monday as first day
+      const dp2 = new DatePicker(document.querySelector('#dp2'), {
+        format: 'dd/MM/yyyy',
+        firstDayOfWeek: 1,
+        onSelect(date, ctx) {
+          document.querySelector('#state').textContent = date ? `선택됨: ${ctx.formatted}` : '선택 해제';
+        },
+      });
+
+      // Inline instance rendered in right pane + analog clock
+      const dp3 = new DatePicker('#dp3', { inline: true, inlineContainer: '#inlinePane', showAnalogClock: true, enableTime: true, format: 'yyyy-MM-dd HH:mm' });
+
+      // Time-enabled instance
+      const dp4 = new DatePicker('#dp4', {
+        format: 'yyyy-MM-dd HH:mm',
+        enableTime: true,
+        timeStep: 10,
+        onSelect(date, ctx) {
+          document.querySelector('#state').textContent = date ? `선택됨: ${ctx.formatted}` : '선택 해제';
+        },
+      });
+
+      // Year/month select + range demo
+      const dp5 = new DatePicker('#dp5', {
+        format: 'yyyy-MM-dd',
+        minDate: new Date(2020, 0, 1),
+        maxDate: new Date(2026, 11, 31),
+      });
+
+      // Clock option demo (popover)
+      const dp6 = new DatePicker('#dp6', {
+        format: 'yyyy-MM-dd HH:mm',
+        enableTime: true,
+        showAnalogClock: true,
+        timeStep: 10,
+        onSelect(date, ctx) {
+          document.querySelector('#state').textContent = date ? `선택됨: ${ctx.formatted}` : '선택 해제';
+        },
+      });
+    </script>
+  </body>
+  </html>
+
+
