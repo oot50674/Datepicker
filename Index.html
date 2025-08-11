@@ -86,7 +86,14 @@
       });
 
       // Inline instance rendered in right pane + analog clock
-      const dp3 = new DatePicker('#dp3', { inline: true, inlineContainer: '#inlinePane', showAnalogClock: true, enableTime: true, format: 'yyyy-MM-dd HH:mm' });
+      const dp3 = new DatePicker('#dp3', { 
+        inline: true, 
+        inlineContainer: '#inlinePane', 
+        showAnalogClock: true, 
+        enableTime: true, 
+        format: 'yyyy-MM-dd hh:mm a',
+        hour12: true 
+      });
 
       // Time-enabled instance
       const dp4 = new DatePicker('#dp4', {

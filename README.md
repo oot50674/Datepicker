@@ -21,15 +21,24 @@
 </script>
 ```
 
-### 날짜+시간 선택 예시
+### 날짜+시간 선택 예시 (24시간/12시간 모드)
 ```html
 <input id="dt" type="text" placeholder="yyyy-MM-dd HH:mm" />
 <script>
-  const dp = new DatePicker('#dt', {
+  // 24시간 모드 (기본)
+  const dp24 = new DatePicker('#dt', {
     format: 'yyyy-MM-dd HH:mm',
     enableTime: true,
     timeStep: 10 // 분 단위 스텝
   });
+  // 12시간 모드 (AM/PM 셀렉트 포함)
+  const dp12 = new DatePicker('#dt', {
+    format: 'yyyy-MM-dd hh:mm a',
+    enableTime: true,
+    hour12: true,
+    timeStep: 10
+  });
+</script>
 ```
 
 ### 인라인 렌더링 + 컨테이너에 배치 예시
@@ -44,10 +53,11 @@
     enableTime: true,               // 시간 선택 셀렉트
     format: 'yyyy-MM-dd HH:mm'
   });
+</script>
 ```
 
 ### 주요 옵션
-- **format**: 출력/파싱 포맷. 지원 토큰: `yyyy`, `MM`, `dd`, `HH`, `mm`
+- **format**: 출력/파싱 포맷. 지원 토큰: `yyyy`, `MM`, `dd`, `HH`, `hh`, `mm`, `a`
 - **firstDayOfWeek**: 주의 시작 요일(0=일, 1=월 …)
 - **minDate / maxDate**: 선택 가능 범위 제한 (`Date` 또는 문자열)
 - **disableDates(date: Date) => boolean**: 특정 날짜 비활성화 콜백
@@ -60,6 +70,7 @@
 - **inlineContainer**: 인라인 렌더링 시 삽입 대상 컨테이너(노드 또는 셀렉터)
 - **position**: 팝오버 위치 `'auto' | 'bottom' | 'top'`
 - **enableTime**: 시간 선택 드롭다운(시/분) 표시
+- **hour12**: 12시간 모드(AM/PM 셀렉트, `hh`, `a` 포맷 사용)
 - **timeStep**: 분 선택 스텝(기본 5)
 - **showAnalogClock**: 우측에 아날로그 시계 표시
 
@@ -70,7 +81,9 @@
 - `MM`: 2자리 월(01–12)
 - `dd`: 2자리 일(01–31)
 - `HH`: 2자리 24시간(00–23)
+- `hh`: 2자리 12시간(01–12, hour12 모드에서 사용)
 - `mm`: 2자리 분(00–59)
+- `a`: AM/PM(12시간 모드에서 사용)
 
 ### 퍼블릭 API
 - `open()` / `close()` / `toggle()`

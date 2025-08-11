@@ -145,25 +145,35 @@
     const yyyy = date.getFullYear();
     const MM = padStartNumber(date.getMonth() + 1, 2);
     const dd = padStartNumber(date.getDate(), 2);
-    const HH = padStartNumber(date.getHours ? date.getHours() : 0, 2);
+    const hours24 = date.getHours ? date.getHours() : 0;
+    const HH = padStartNumber(hours24, 2);
+    const h12Raw = hours24 % 12; // 0..11
+    const h12Val = h12Raw === 0 ? 12 : h12Raw; // 1..12
+    const hh = padStartNumber(h12Val, 2);
+    const a = hours24 >= 12 ? 'PM' : 'AM';
     const mm = padStartNumber(date.getMinutes ? date.getMinutes() : 0, 2);
     return String(formatString)
       .replace(/yyyy/g, String(yyyy))
       .replace(/MM/g, MM)
       .replace(/dd/g, dd)
       .replace(/HH/g, HH)
-      .replace(/mm/g, mm);
+      .replace(/hh/g, hh)
+      .replace(/mm/g, mm)
+      .replace(/\ba\b/g, a);
   }
 
   function parseDate(value, formatString) {
     if (value == null || value === '') return null;
-    // Generic parser for tokens yyyy, MM, dd, HH, mm
-    const esc = String(formatString || DEFAULT_FORMAT)
+    // Parser for tokens yyyy, MM, dd, HH, hh, mm, a
+    const fmt = String(formatString || DEFAULT_FORMAT);
+    const esc = fmt
       .replace(/yyyy/g, '(?<year>\\d{4})')
       .replace(/MM/g, '(?<month>\\d{1,2})')
       .replace(/dd/g, '(?<day>\\d{1,2})')
-      .replace(/HH/g, '(?<hour>\\d{1,2})')
-      .replace(/mm/g, '(?<minute>\\d{1,2})');
+      .replace(/HH/g, '(?<hour24>\\d{1,2})')
+      .replace(/hh/g, '(?<hour12>\\d{1,2})')
+      .replace(/mm/g, '(?<minute>\\d{1,2})')
+      .replace(/\ba/g, '(?<ampm>AM|PM|am|pm)');
     const regex = new RegExp('^' + esc + '$');
     const m = String(value).match(regex);
     if (!m) return null;
@@ -171,7 +181,19 @@
     const year = Number(groups.year);
     const monthIndex = Number(groups.month) - 1;
     const day = Number(groups.day);
-    const hour = groups.hour != null ? Math.min(23, Math.max(0, Number(groups.hour))) : 0;
+    let hour = 0;
+    if (groups.hour24 != null) {
+      hour = Math.min(23, Math.max(0, Number(groups.hour24)));
+    } else if (groups.hour12 != null) {
+      let h12 = Math.min(12, Math.max(1, Number(groups.hour12)));
+      const ampm = groups.ampm || '';
+      const isPm = /pm/i.test(ampm);
+      if (isPm) {
+        hour = (h12 % 12) + 12; // 12PM -> 12, 1PM -> 13
+      } else {
+        hour = h12 % 12; // 12AM or no ampm -> 0
+      }
+    }
     const minute = groups.minute != null ? Math.min(59, Math.max(0, Number(groups.minute))) : 0;
     const d = new Date(year, monthIndex, day, hour, minute);
     return isValidDate(d) ? d : null;
@@ -249,6 +271,7 @@
         showAnalogClock: Boolean(initialOptions.showAnalogClock),
         showAnalogSeconds: false,
         showAnalogNumbers: true,
+        hour12: Boolean(initialOptions.hour12),
         inlineContainer: initialOptions.inlineContainer || null,
       };
 
@@ -419,12 +442,6 @@
         this.clockNumbers.appendChild(el);
       }
       this.clockFace.appendChild(this.clockNumbers);
-
-      // AM/PM indicator above the clock
-      this.clockAmPm = createElement('div', 'dp-clock-ampm', { 'aria-hidden': 'true' });
-      this.clockAmPm.textContent = 'a.m.';
-      // append order: label first, then face (so label appears above)
-      this.clockContainer.appendChild(this.clockAmPm);
       this.clockContainer.appendChild(this.clockFace);
     }
 
@@ -450,16 +467,6 @@
       this.clockMinuteHand.style.transform = 'translateX(-50%) rotate(' + String(minuteDeg) + 'deg)';
       if (this.clockSecondHand) {
         this.clockSecondHand.style.display = 'none';
-      }
-
-      // Update AM/PM indicator
-      if (this.clockAmPm) {
-        var isAM = hours < 12;
-        this.clockAmPm.textContent = isAM ? 'a.m.' : 'p.m.';
-        if (this.clockAmPm.classList) {
-          this.clockAmPm.classList.toggle('is-am', isAM);
-          this.clockAmPm.classList.toggle('is-pm', !isAM);
-        }
       }
     }
 
@@ -550,19 +557,44 @@
     _buildTimeControls() {
       var self = this;
       this.timeRow = createElement('div', 'dp-time');
+
+      // AM/PM select for 12-hour mode
+      this.ampmSelect = null;
+      if (this.options.hour12) {
+        this.ampmSelect = createElement('select', 'dp-time-ampm', { 'aria-label': 'AM/PM' });
+        var optAm = document.createElement('option'); optAm.value = 'AM'; optAm.textContent = 'AM';
+        var optPm = document.createElement('option'); optPm.value = 'PM'; optPm.textContent = 'PM';
+        this.ampmSelect.appendChild(optAm);
+        this.ampmSelect.appendChild(optPm);
+      }
+
       this.hourSelect = createElement('select', 'dp-time-hour', { 'aria-label': 'Hour' });
       this.minuteSelect = createElement('select', 'dp-time-minute', { 'aria-label': 'Minute' });
-      // Hour options 00..23
-      var h;
-      for (h = 0; h < 24; h += 1) {
-        var optH = document.createElement('option');
-        optH.value = String(h);
-        optH.textContent = padStartNumber(h, 2);
-        this.hourSelect.appendChild(optH);
+
+      // Hour options
+      if (this.options.hour12) {
+        var h12;
+        for (h12 = 1; h12 <= 12; h12 += 1) {
+          var optH12 = document.createElement('option');
+          optH12.value = String(h12);
+          optH12.textContent = padStartNumber(h12, 2);
+          this.hourSelect.appendChild(optH12);
+        }
+      } else {
+        var h;
+        for (h = 0; h < 24; h += 1) {
+          var optH = document.createElement('option');
+          optH.value = String(h);
+          optH.textContent = padStartNumber(h, 2);
+          this.hourSelect.appendChild(optH);
+        }
       }
+
       // Minute options by step
       this._rebuildMinuteOptions();
 
+      // Append in order: AM/PM (if any), Hour, Minute
+      if (this.ampmSelect) this.timeRow.appendChild(this.ampmSelect);
       this.timeRow.appendChild(this.hourSelect);
       this.timeRow.appendChild(this.minuteSelect);
 
@@ -572,14 +604,32 @@
       }
       this._updateTimeInputs();
 
+      // Listeners
       this.hourSelect.addEventListener('change', function () {
-        var nh = Number(self.hourSelect.value);
+        var nh;
+        if (self.options.hour12) {
+          var h12v = Number(self.hourSelect.value) || 12; // 1..12
+          var base = h12v % 12; // 12->0
+          var isPm = self.ampmSelect ? self.ampmSelect.value === 'PM' : false;
+          nh = isPm ? base + 12 : base;
+        } else {
+          nh = Number(self.hourSelect.value);
+        }
         self._setTime(nh, self.timeMinutes, true);
       });
       this.minuteSelect.addEventListener('change', function () {
         var nm = Number(self.minuteSelect.value);
         self._setTime(self.timeHours, nm, true);
       });
+      if (this.ampmSelect) {
+        this.ampmSelect.addEventListener('change', function () {
+          var h12v = Number(self.hourSelect.value) || 12;
+          var base = h12v % 12;
+          var isPm = self.ampmSelect.value === 'PM';
+          var nh = isPm ? base + 12 : base;
+          self._setTime(nh, self.timeMinutes, true);
+        });
+      }
     }
 
     _rebuildMinuteOptions() {
@@ -604,15 +654,21 @@
 
     _updateTimeInputs() {
       if (!this.options.enableTime || !this.timeRow) return;
-      this.hourSelect.value = String(this.timeHours);
-      // Ensure minute present in options; if not, rebuild by step and clamp
-      var step = Number(this.options.timeStep) > 0 ? Number(this.options.timeStep) : 5;
-      if (60 % step !== 0) {
-        // still fine; options created by loop
+
+      // Hour + AM/PM
+      if (this.options.hour12) {
+        var isPm = (this.timeHours >= 12);
+        var disp = this.timeHours % 12; if (disp === 0) disp = 12;
+        if (this.ampmSelect) this.ampmSelect.value = isPm ? 'PM' : 'AM';
+        this.hourSelect.value = String(disp);
+      } else {
+        this.hourSelect.value = String(this.timeHours);
       }
+
+      // Minute
+      var step = Number(this.options.timeStep) > 0 ? Number(this.options.timeStep) : 5;
       var minuteValue = clampMinuteToStep(this.timeMinutes, step);
       this.timeMinutes = minuteValue;
-      // If minute option missing, add it
       var exists = false;
       var i;
       for (i = 0; i < this.minuteSelect.options.length; i += 1) {
@@ -932,6 +988,7 @@
             this.timeRow.parentNode.removeChild(this.timeRow);
           }
           this.timeRow = null;
+          this.ampmSelect = null;
         }
       }
       if (Object.prototype.hasOwnProperty.call(partial, 'timeStep')) {
@@ -962,6 +1019,63 @@
           this.clockContainer = null;
           this.calendarElement.classList.remove('has-clock');
           this._stopClockTimer();
+        }
+      }
+      if (Object.prototype.hasOwnProperty.call(partial, 'hour12')) {
+        var want12 = Boolean(partial.hour12);
+        if (want12 !== this.options.hour12) {
+          this.options.hour12 = want12;
+          if (this.options.enableTime) {
+            // Rebuild time controls or adjust existing
+            if (!this.timeRow) {
+              this._buildTimeControls();
+              if (this.timeRow) {
+                this.calendarElement.insertBefore(this.timeRow, this.footer);
+              }
+            } else {
+              // Rebuild hour options and AM/PM UI
+              // Remove current hour options
+              if (this.hourSelect) this.hourSelect.textContent = '';
+              if (want12) {
+                // Ensure AM/PM exists
+                if (!this.ampmSelect) {
+                  this.ampmSelect = createElement('select', 'dp-time-ampm', { 'aria-label': 'AM/PM' });
+                  var optAm2 = document.createElement('option'); optAm2.value = 'AM'; optAm2.textContent = 'AM';
+                  var optPm2 = document.createElement('option'); optPm2.value = 'PM'; optPm2.textContent = 'PM';
+                  this.ampmSelect.appendChild(optAm2);
+                  this.ampmSelect.appendChild(optPm2);
+                  this.timeRow.insertBefore(this.ampmSelect, this.hourSelect);
+                  var selfUpd = this;
+                  this.ampmSelect.addEventListener('change', function () {
+                    var h12v = Number(selfUpd.hourSelect.value) || 12;
+                    var base = h12v % 12;
+                    var isPm = selfUpd.ampmSelect.value === 'PM';
+                    var nh = isPm ? base + 12 : base;
+                    selfUpd._setTime(nh, selfUpd.timeMinutes, true);
+                  });
+                }
+                var h12b;
+                for (h12b = 1; h12b <= 12; h12b += 1) {
+                  var optH12b = document.createElement('option');
+                  optH12b.value = String(h12b);
+                  optH12b.textContent = padStartNumber(h12b, 2);
+                  this.hourSelect.appendChild(optH12b);
+                }
+              } else {
+                // Remove AM/PM if exists
+                if (this.ampmSelect && this.ampmSelect.parentNode) this.ampmSelect.parentNode.removeChild(this.ampmSelect);
+                this.ampmSelect = null;
+                var hb;
+                for (hb = 0; hb < 24; hb += 1) {
+                  var optHb = document.createElement('option');
+                  optHb.value = String(hb);
+                  optHb.textContent = padStartNumber(hb, 2);
+                  this.hourSelect.appendChild(optHb);
+                }
+              }
+              this._updateTimeInputs();
+            }
+          }
         }
       }
       this._renderWeekdays();
