@@ -185,7 +185,7 @@
 .dp-clock {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 6px; /* tighter gap so label sits closer to face */
   align-items: center;
   justify-content: center;
   padding: 6px;
@@ -237,6 +237,16 @@
   font-size: 13px;
   color: var(--dp-muted);
 }
+
+/* AM/PM indicator */
+.dp-clock-ampm {
+  font-size: 12px;
+  color: var(--dp-muted);
+  letter-spacing: 0.3px;
+  line-height: 1;
+}
+.dp-clock-ampm.is-pm { color: var(--dp-text); }
+
 /* Time row */
 .dp-time {
   display: flex;

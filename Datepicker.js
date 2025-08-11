@@ -419,6 +419,12 @@
         this.clockNumbers.appendChild(el);
       }
       this.clockFace.appendChild(this.clockNumbers);
+
+      // AM/PM indicator above the clock
+      this.clockAmPm = createElement('div', 'dp-clock-ampm', { 'aria-hidden': 'true' });
+      this.clockAmPm.textContent = 'a.m.';
+      // append order: label first, then face (so label appears above)
+      this.clockContainer.appendChild(this.clockAmPm);
       this.clockContainer.appendChild(this.clockFace);
     }
 
@@ -444,6 +450,16 @@
       this.clockMinuteHand.style.transform = 'translateX(-50%) rotate(' + String(minuteDeg) + 'deg)';
       if (this.clockSecondHand) {
         this.clockSecondHand.style.display = 'none';
+      }
+
+      // Update AM/PM indicator
+      if (this.clockAmPm) {
+        var isAM = hours < 12;
+        this.clockAmPm.textContent = isAM ? 'a.m.' : 'p.m.';
+        if (this.clockAmPm.classList) {
+          this.clockAmPm.classList.toggle('is-am', isAM);
+          this.clockAmPm.classList.toggle('is-pm', !isAM);
+        }
       }
     }
 
