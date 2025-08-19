@@ -73,6 +73,10 @@
 - **hour12**: 12시간 모드(AM/PM 셀렉트, `hh`, `a` 포맷 사용)
 - **timeStep**: 분 선택 스텝(기본 5)
 - **showAnalogClock**: 우측에 아날로그 시계 표시
+- **range**: 기간(시작~종료) 선택 모드 활성화
+- **rangeSeparator**: 기간 표시 구분자(기본 ` - `)
+  - `range: true`와 `enableTime: true`를 함께 사용하면 시작/종료 각각의 시간 선택 UI가 표시됩니다.
+ - **confirm**: 완료 버튼 표시 및 확정 방식 사용. 버튼을 눌러야 입력값이 반영되고 창이 닫힘
 
 참고: 연/월 선택은 헤더의 셀렉트 박스로 제공됩니다. `minDate`/`maxDate`가 설정된 경우 연도 셀렉트 범위가 해당 범위에 맞춰집니다.
 
@@ -90,6 +94,8 @@
 - `destroy()`
 - `getDate(): Date|null`
 - `setDate(dateOrString, source?)`
+- `getRange(): { start: Date|null, end: Date|null }` (range 모드 전용)
+- `setRange(range | [start, end] | string, source?)` (range 모드 전용)
 - `updateOptions(partialOptions)`
 - `setMinDate(dateOrString)` / `setMaxDate(dateOrString)`
 

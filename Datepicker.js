@@ -28,6 +28,10 @@
     showOutsideDays: boolean (default true)
     inline: boolean (default false)
     position: 'auto'|'bottom'|'top' (default 'auto')
+    range: boolean (default false) — 기간 선택 모드
+    rangeSeparator: string (default ' - ')
+    onSelectRange: ({ start: Date|null, end: Date|null }, ctx: { formatted: string, source: 'user'|'api' }) => void
+    confirm: boolean (default false) — 완료 버튼으로 확정하는 모드
 
   License: MIT
 */
@@ -130,6 +134,7 @@
       today: isKorean ? '오늘' : 'Today',
       clear: isKorean ? '지우기' : 'Clear',
       close: isKorean ? '닫기' : 'Close',
+      done: isKorean ? '완료' : 'Done',
     };
     const aria = {
       previousMonth: isKorean ? '이전 달' : 'Previous month',
@@ -260,6 +265,7 @@
         maxDate: this._normalizeDate(initialOptions.maxDate),
         disableDates: typeof initialOptions.disableDates === 'function' ? initialOptions.disableDates : null,
         onSelect: typeof initialOptions.onSelect === 'function' ? initialOptions.onSelect : null,
+        onSelectRange: typeof initialOptions.onSelectRange === 'function' ? initialOptions.onSelectRange : null,
         i18n,
         openOnFocus: initialOptions.openOnFocus !== false,
         autoClose: initialOptions.autoClose !== false,
@@ -273,9 +279,23 @@
         showAnalogNumbers: true,
         hour12: Boolean(initialOptions.hour12),
         inlineContainer: initialOptions.inlineContainer || null,
+        range: Boolean(initialOptions.range),
+        rangeSeparator: initialOptions.rangeSeparator || ' - ',
+        confirm: Boolean(initialOptions.confirm),
       };
 
+      // 시간 선택이 가능한 경우, 완료 버튼은 항상 활성화
+      if (this.options.enableTime) {
+        this.options.confirm = true;
+      }
+
       this.selectedDate = null;
+      this.rangeStart = null;
+      this.rangeEnd = null;
+      this.hoveringDate = null;
+      // Range time state
+      this.startHours = 0; this.startMinutes = 0;
+      this.endHours = 0; this.endMinutes = 0;
       this.focusedDate = null;
       this.currentViewMonth = startOfMonth(new Date());
       this.isOpen = false;
@@ -284,13 +304,25 @@
 
       const existingValue = String(this.inputElement.value || '').trim();
       if (existingValue) {
-        const parsed = parseDate(existingValue, this.options.format);
-        if (parsed) {
-          if (this.options.enableTime) {
-            this.selectedDate = new Date(parsed.getTime());
-            this._initTimeFromDate(parsed);
-          } else {
-            this.selectedDate = startOfDay(parsed);
+        if (this.options.range) {
+          const rg = this._parseRangeString(existingValue);
+          if (rg) {
+            this.rangeStart = rg.start;
+            this.rangeEnd = rg.end;
+            if (this.options.enableTime) {
+              if (this.rangeStart) { this.startHours = this.rangeStart.getHours(); this.startMinutes = clampMinuteToStep(this.rangeStart.getMinutes(), this.options.timeStep); }
+              if (this.rangeEnd) { this.endHours = this.rangeEnd.getHours(); this.endMinutes = clampMinuteToStep(this.rangeEnd.getMinutes(), this.options.timeStep); }
+            }
+          }
+        } else {
+          const parsed = parseDate(existingValue, this.options.format);
+          if (parsed) {
+            if (this.options.enableTime) {
+              this.selectedDate = new Date(parsed.getTime());
+              this._initTimeFromDate(parsed);
+            } else {
+              this.selectedDate = startOfDay(parsed);
+            }
           }
         }
       }
@@ -318,6 +350,104 @@
       return startOfDay(parsed);
     }
 
+    _parseRangeString(value) {
+      const sep = this.options.rangeSeparator || ' - ';
+      const parts = String(value).split(sep);
+      if (parts.length !== 2) return null;
+      const s = parseDate(parts[0].trim(), this.options.format);
+      const e = parseDate(parts[1].trim(), this.options.format);
+      const keepTime = this.options.enableTime;
+      const start = s ? (keepTime ? new Date(s.getTime()) : startOfDay(s)) : null;
+      const end = e ? (keepTime ? new Date(e.getTime()) : startOfDay(e)) : null;
+      if (!start && !end) return null;
+      let rs = start;
+      let re = end;
+      if (rs && re && re < rs) { const tmp = rs; rs = re; re = tmp; }
+      // Bounds/disabled check
+      if (rs && isDateOutOfBounds(rs, this.options.minDate, this.options.maxDate)) rs = null;
+      if (re && isDateOutOfBounds(re, this.options.minDate, this.options.maxDate)) re = null;
+      if (rs && this.options.disableDates && this.options.disableDates(rs)) rs = null;
+      if (re && this.options.disableDates && this.options.disableDates(re)) re = null;
+      return { start: rs, end: re };
+    }
+
+    _formatRangeString(start, end) {
+      const sep = this.options.rangeSeparator || ' - ';
+      if (start && end) return `${formatDate(start, this.options.format)}${sep}${formatDate(end, this.options.format)}`;
+      if (start && !end) return `${formatDate(start, this.options.format)}`;
+      return '';
+    }
+
+    getRange() {
+      if (!this.options.range) return { start: null, end: null };
+      const s = this.rangeStart ? new Date(this.rangeStart.getTime()) : null;
+      const e = this.rangeEnd ? new Date(this.rangeEnd.getTime()) : null;
+      return { start: s, end: e };
+    }
+
+    setRange(rangeOrString, source) {
+      if (!this.options.range) return;
+      let start = null, end = null;
+      if (!rangeOrString) {
+        this.rangeStart = null; this.rangeEnd = null; this.hoveringDate = null;
+        if (!this.options.confirm) this.inputElement.value = '';
+        this._render();
+        if (typeof this.options.onSelectRange === 'function') {
+          try { this.options.onSelectRange({ start: null, end: null }, { formatted: '', source: source || 'api' }); } catch (_) {}
+        }
+        if (!this.options.confirm) {
+          const changeEvent = new Event('change', { bubbles: true });
+          this.inputElement.dispatchEvent(changeEvent);
+        }
+        return;
+      }
+      if (typeof rangeOrString === 'string') {
+        const rg = this._parseRangeString(rangeOrString);
+        if (rg) { start = rg.start; end = rg.end; }
+      } else if (Array.isArray(rangeOrString)) {
+        start = this._normalizeDate(rangeOrString[0]);
+        end = this._normalizeDate(rangeOrString[1]);
+      } else if (typeof rangeOrString === 'object') {
+        start = this._normalizeDate(rangeOrString.start);
+        end = this._normalizeDate(rangeOrString.end);
+      }
+      if (start && end && end < start) { const tmp = start; start = end; end = tmp; }
+      if (start && isDateOutOfBounds(start, this.options.minDate, this.options.maxDate)) start = null;
+      if (end && isDateOutOfBounds(end, this.options.minDate, this.options.maxDate)) end = null;
+      if (start && this.options.disableDates && this.options.disableDates(start)) start = null;
+      if (end && this.options.disableDates && this.options.disableDates(end)) end = null;
+      this.rangeStart = start || null;
+      this.rangeEnd = end || null;
+      if (this.options.enableTime) {
+        if (this.rangeStart) { this.startHours = this.rangeStart.getHours(); this.startMinutes = clampMinuteToStep(this.rangeStart.getMinutes(), this.options.timeStep); }
+        if (this.rangeEnd) { this.endHours = this.rangeEnd.getHours(); this.endMinutes = clampMinuteToStep(this.rangeEnd.getMinutes(), this.options.timeStep); }
+        this._updateRangeTimeInputs();
+      }
+      if (this.rangeStart) this.currentViewMonth = startOfMonth(this.rangeStart);
+      const formatted = this._formatRangeString(this.rangeStart, this.rangeEnd);
+      if (!this.options.confirm) this.inputElement.value = formatted;
+      this._render();
+      if (typeof this.options.onSelectRange === 'function') {
+        try { this.options.onSelectRange({ start: this.rangeStart, end: this.rangeEnd }, { formatted, source: source || 'api' }); } catch (_) {}
+      }
+      if (!this.options.confirm) {
+        const changeEvent = new Event('change', { bubbles: true });
+        this.inputElement.dispatchEvent(changeEvent);
+      }
+    }
+
+    _syncRangeValue(source) {
+      const formatted = this._formatRangeString(this.rangeStart, this.rangeEnd);
+      if (!this.options.confirm) this.inputElement.value = formatted;
+      if (typeof this.options.onSelectRange === 'function') {
+        try { this.options.onSelectRange({ start: this.rangeStart, end: this.rangeEnd }, { formatted, source: source || 'api' }); } catch (_) {}
+      }
+      if (!this.options.confirm) {
+        const changeEvent = new Event('change', { bubbles: true });
+        this.inputElement.dispatchEvent(changeEvent);
+      }
+    }
+
     _build() {
       this.wrapperElement = createElement('div', 'dp-popover', { 'data-dp-root': '1' });
       this.calendarElement = createElement('div', 'dp', { role: 'dialog', 'aria-label': this.options.i18n.aria.calendar });
@@ -342,11 +472,24 @@
 
       // Days grid
       this.daysGrid = createElement('div', 'dp-days', { role: 'grid' });
+      // Hover leave handler for range preview
+      var selfGrid = this;
+      this.daysGrid.addEventListener('mouseleave', function () {
+        if (selfGrid.options.range && selfGrid.hoveringDate) {
+          selfGrid.hoveringDate = null;
+          selfGrid._updateRangeHighlight();
+        }
+      });
 
       // Time controls (optional)
       this.timeRow = null;
+      this.timeRangeRow = null;
       if (this.options.enableTime) {
-        this._buildTimeControls();
+        if (this.options.range) {
+          this._buildRangeTimeControls();
+        } else {
+          this._buildTimeControls();
+        }
       }
 
       // Footer
@@ -355,9 +498,15 @@
       this.todayButton.textContent = this.options.i18n.buttons.today;
       this.clearButton = createElement('button', 'dp-btn dp-clear', { type: 'button' });
       this.clearButton.textContent = this.options.i18n.buttons.clear;
+      this.doneButton = null;
+      if (this.options.confirm) {
+        this.doneButton = createElement('button', 'dp-btn dp-done', { type: 'button' });
+        this.doneButton.textContent = this.options.i18n.buttons.done;
+      }
 
       this.footer.appendChild(this.todayButton);
       this.footer.appendChild(this.clearButton);
+      if (this.doneButton) this.footer.appendChild(this.doneButton);
 
       // Build content layout (main + optional clock)
       this.contentElement = createElement('div', 'dp-content');
@@ -387,6 +536,9 @@
           this.mainContainer.insertBefore(this.timeRow, this.footer);
         }
       }
+      if (this.timeRangeRow) {
+        this.mainContainer.insertBefore(this.timeRangeRow, this.footer);
+      }
       this.calendarElement.appendChild(this.contentElement);
 
       // Attach listeners
@@ -395,6 +547,9 @@
       var self = this;
       this.todayButton.addEventListener('click', function () { self._selectToday(); });
       this.clearButton.addEventListener('click', function () { self._clearSelection(); });
+      if (this.doneButton) {
+        this.doneButton.addEventListener('click', function () { self._commitValue(); });
+      }
       // no close icon/button
       this.calendarElement.addEventListener('keydown', function (e) { self._onKeyDown(e); });
 
@@ -646,6 +801,136 @@
       }
     }
 
+    _buildRangeTimeControls() {
+      var self = this;
+      this.timeRangeRow = createElement('div', 'dp-time-range');
+
+      function buildGroup(prefix) {
+        var group = createElement('div', 'dp-time-group');
+        var label = createElement('div', 'dp-time-label');
+        label.textContent = prefix === 'start' ? '시작' : '종료';
+        group.appendChild(label);
+
+        var ampmSelect = null;
+        if (self.options.hour12) {
+          ampmSelect = createElement('select', 'dp-time-ampm', { 'aria-label': prefix + ' AM/PM' });
+          var optAm = document.createElement('option'); optAm.value = 'AM'; optAm.textContent = 'AM';
+          var optPm = document.createElement('option'); optPm.value = 'PM'; optPm.textContent = 'PM';
+          ampmSelect.appendChild(optAm); ampmSelect.appendChild(optPm);
+        }
+
+        var hourSelect = createElement('select', 'dp-time-hour', { 'aria-label': prefix + ' Hour' });
+        var minuteSelect = createElement('select', 'dp-time-minute', { 'aria-label': prefix + ' Minute' });
+
+        if (self.options.hour12) {
+          var h12;
+          for (h12 = 1; h12 <= 12; h12 += 1) {
+            var optH12 = document.createElement('option');
+            optH12.value = String(h12);
+            optH12.textContent = padStartNumber(h12, 2);
+            hourSelect.appendChild(optH12);
+          }
+        } else {
+          var h;
+          for (h = 0; h < 24; h += 1) {
+            var optH = document.createElement('option');
+            optH.value = String(h);
+            optH.textContent = padStartNumber(h, 2);
+            hourSelect.appendChild(optH);
+          }
+        }
+        // minutes by step
+        var step = Number(self.options.timeStep) > 0 ? Number(self.options.timeStep) : 5;
+        var m = 0; minuteSelect.textContent = '';
+        while (m < 60) { var optM = document.createElement('option'); optM.value = String(m); optM.textContent = padStartNumber(m, 2); minuteSelect.appendChild(optM); m += step; }
+
+        if (ampmSelect) group.appendChild(ampmSelect);
+        group.appendChild(hourSelect);
+        group.appendChild(minuteSelect);
+
+        return { group, ampmSelect, hourSelect, minuteSelect };
+      }
+
+      var start = buildGroup('start');
+      var end = buildGroup('end');
+      this.timeRangeRow.appendChild(start.group);
+      this.timeRangeRow.appendChild(end.group);
+
+      // store refs
+      this.startAmpmSelect = start.ampmSelect; this.endAmpmSelect = end.ampmSelect;
+      this.startHourSelect = start.hourSelect; this.endHourSelect = end.hourSelect;
+      this.startMinuteSelect = start.minuteSelect; this.endMinuteSelect = end.minuteSelect;
+
+      // init from range dates or internal state
+      this._updateRangeTimeInputs();
+
+      // listeners
+      var onStartChange = function () {
+        var nh;
+        if (self.options.hour12) {
+          var h12v = Number(self.startHourSelect.value) || 12;
+          var base = h12v % 12;
+          var isPm = self.startAmpmSelect ? self.startAmpmSelect.value === 'PM' : false;
+          nh = isPm ? base + 12 : base;
+        } else { nh = Number(self.startHourSelect.value) || 0; }
+        var nm = Number(self.startMinuteSelect.value) || 0;
+        self.startHours = Math.max(0, Math.min(23, nh));
+        self.startMinutes = clampMinuteToStep(Math.max(0, Math.min(59, nm)), self.options.timeStep);
+        if (self.rangeStart) {
+          self.rangeStart = new Date(self.rangeStart.getFullYear(), self.rangeStart.getMonth(), self.rangeStart.getDate(), self.startHours, self.startMinutes);
+          self._syncRangeValue('user');
+        }
+        self._updateRangeHighlight();
+      };
+      var onEndChange = function () {
+        var nh;
+        if (self.options.hour12) {
+          var h12v = Number(self.endHourSelect.value) || 12;
+          var base = h12v % 12;
+          var isPm = self.endAmpmSelect ? self.endAmpmSelect.value === 'PM' : false;
+          nh = isPm ? base + 12 : base;
+        } else { nh = Number(self.endHourSelect.value) || 0; }
+        var nm = Number(self.endMinuteSelect.value) || 0;
+        self.endHours = Math.max(0, Math.min(23, nh));
+        self.endMinutes = clampMinuteToStep(Math.max(0, Math.min(59, nm)), self.options.timeStep);
+        if (self.rangeEnd) {
+          self.rangeEnd = new Date(self.rangeEnd.getFullYear(), self.rangeEnd.getMonth(), self.rangeEnd.getDate(), self.endHours, self.endMinutes);
+          self._syncRangeValue('user');
+        }
+        self._updateRangeHighlight();
+      };
+      this.startHourSelect.addEventListener('change', onStartChange);
+      this.startMinuteSelect.addEventListener('change', onStartChange);
+      if (this.startAmpmSelect) this.startAmpmSelect.addEventListener('change', onStartChange);
+      this.endHourSelect.addEventListener('change', onEndChange);
+      this.endMinuteSelect.addEventListener('change', onEndChange);
+      if (this.endAmpmSelect) this.endAmpmSelect.addEventListener('change', onEndChange);
+    }
+
+    _updateRangeTimeInputs() {
+      if (!this.options.enableTime || !this.options.range) return;
+      // start
+      var sh = this.startHours, sm = this.startMinutes;
+      if (this.rangeStart) { sh = this.rangeStart.getHours(); sm = clampMinuteToStep(this.rangeStart.getMinutes(), this.options.timeStep); }
+      if (this.options.hour12) {
+        var isPmS = sh >= 12; var dispS = sh % 12; if (dispS === 0) dispS = 12;
+        if (this.startAmpmSelect) this.startAmpmSelect.value = isPmS ? 'PM' : 'AM';
+        if (this.startHourSelect) this.startHourSelect.value = String(dispS);
+      } else { if (this.startHourSelect) this.startHourSelect.value = String(sh); }
+      if (this.startMinuteSelect) this.startMinuteSelect.value = String(clampMinuteToStep(sm, this.options.timeStep));
+      this.startHours = sh; this.startMinutes = clampMinuteToStep(sm, this.options.timeStep);
+      // end
+      var eh = this.endHours, em = this.endMinutes;
+      if (this.rangeEnd) { eh = this.rangeEnd.getHours(); em = clampMinuteToStep(this.rangeEnd.getMinutes(), this.options.timeStep); }
+      if (this.options.hour12) {
+        var isPmE = eh >= 12; var dispE = eh % 12; if (dispE === 0) dispE = 12;
+        if (this.endAmpmSelect) this.endAmpmSelect.value = isPmE ? 'PM' : 'AM';
+        if (this.endHourSelect) this.endHourSelect.value = String(dispE);
+      } else { if (this.endHourSelect) this.endHourSelect.value = String(eh); }
+      if (this.endMinuteSelect) this.endMinuteSelect.value = String(clampMinuteToStep(em, this.options.timeStep));
+      this.endHours = eh; this.endMinutes = clampMinuteToStep(em, this.options.timeStep);
+    }
+
     _initTimeFromDate(d) {
       if (!isValidDate(d)) return;
       this.timeHours = d.getHours();
@@ -724,7 +1009,7 @@
           continue;
         }
         const isToday = areSameCalendarDate(dayDate, new Date());
-        const isSelected = this.selectedDate ? areSameCalendarDate(dayDate, this.selectedDate) : false;
+        const isSelectedSingle = !this.options.range && this.selectedDate ? areSameCalendarDate(dayDate, this.selectedDate) : false;
         const disabledByBounds = isDateOutOfBounds(dayDate, this.options.minDate, this.options.maxDate);
         const disabledByFn = this.options.disableDates ? this.options.disableDates(dayDate) : false;
         const isDisabled = disabledByBounds || Boolean(disabledByFn);
@@ -732,27 +1017,93 @@
         const cell = createElement('button', 'dp-day', {
           type: 'button',
           role: 'gridcell',
-          'aria-selected': String(isSelected),
+          'aria-selected': String(isSelectedSingle),
           'aria-disabled': String(isDisabled),
           'data-date': toISODateString(dayDate),
         });
         cell.textContent = String(dayDate.getDate());
         if (isOutside) cell.classList.add('is-outside');
         if (isToday) cell.classList.add('is-today');
-        if (isSelected) cell.classList.add('is-selected');
+        if (isSelectedSingle) cell.classList.add('is-selected');
         if (isDisabled) cell.classList.add('is-disabled');
+
+        // Range selection rendering (initial highlighting; hover updates are incremental)
+        if (this.options.range) {
+          // actual highlighting is done in _updateRangeHighlight()
+        }
 
         if (!isDisabled) {
           var selfCell = this;
-          cell.addEventListener('click', function () {
-            selfCell._selectDate(dayDate, 'user');
-            if (selfCell.options.autoClose && !selfCell.options.inline && !selfCell.options.enableTime) selfCell.close();
-          });
+          if (this.options.range) {
+            cell.addEventListener('click', function () {
+              selfCell._handleRangeClick(dayDate);
+            });
+            cell.addEventListener('mouseenter', function () {
+              if (selfCell.options.range && selfCell.rangeStart && !selfCell.rangeEnd) {
+                selfCell.hoveringDate = startOfDay(dayDate);
+                selfCell._updateRangeHighlight();
+              }
+            });
+          } else {
+            cell.addEventListener('click', function () {
+              selfCell._selectDate(dayDate, 'user');
+              if (!selfCell.options.confirm && selfCell.options.autoClose && !selfCell.options.inline && !selfCell.options.enableTime) selfCell.close();
+            });
+          }
         }
 
         this.daysGrid.appendChild(cell);
       }
+      if (this.options.range) this._updateRangeHighlight();
       this._updateClock();
+    }
+
+    _updateRangeHighlight() {
+      if (!this.options.range || !this.daysGrid) return;
+      const nodes = this.daysGrid.querySelectorAll('.dp-day');
+      let rs = this.rangeStart ? startOfDay(this.rangeStart) : null;
+      let re = this.rangeEnd ? startOfDay(this.rangeEnd) : null;
+      let previewEnd = this.hoveringDate && rs && !re ? this.hoveringDate : null;
+      if (rs && previewEnd && previewEnd < rs) { const tmp = rs; rs = previewEnd; re = tmp; previewEnd = null; }
+      const effStart = rs;
+      const effEnd = re || (previewEnd ? startOfDay(previewEnd) : null) || null;
+      nodes.forEach((el) => {
+        el.classList.remove('is-in-range', 'is-range-start', 'is-range-end');
+        if (!el.dataset || !el.dataset.date) return;
+        const parts = el.getAttribute('data-date').split('-');
+        if (parts.length !== 3) return;
+        const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+        if (effStart && effEnd && d >= effStart && d <= effEnd) el.classList.add('is-in-range');
+        if (effStart && areSameCalendarDate(d, effStart)) el.classList.add('is-range-start');
+        if (effEnd && areSameCalendarDate(d, effEnd)) el.classList.add('is-range-end');
+        if (el.classList.contains('is-range-start') || el.classList.contains('is-range-end')) {
+          el.setAttribute('aria-selected', 'true');
+        } else {
+          el.setAttribute('aria-selected', 'false');
+        }
+      });
+    }
+
+    _commitValue() {
+      // Commit current selection into input and close
+      if (!this.options.confirm) return;
+      let formatted = '';
+      if (this.options.range) {
+        formatted = this._formatRangeString(this.rangeStart, this.rangeEnd);
+        this.inputElement.value = formatted;
+        if (typeof this.options.onSelectRange === 'function') {
+          try { this.options.onSelectRange({ start: this.rangeStart, end: this.rangeEnd }, { formatted, source: 'confirm' }); } catch (_) {}
+        }
+      } else {
+        if (this.selectedDate) formatted = formatDate(this.selectedDate, this.options.format);
+        this.inputElement.value = formatted;
+        if (typeof this.options.onSelect === 'function') {
+          try { this.options.onSelect(this.selectedDate ? new Date(this.selectedDate.getTime()) : null, { formatted, source: 'confirm' }); } catch (_) {}
+        }
+      }
+      const changeEvent = new Event('change', { bubbles: true });
+      this.inputElement.dispatchEvent(changeEvent);
+      if (!this.options.inline) this.close();
     }
 
     _onKeyDown(event) {
@@ -787,10 +1138,14 @@
           nextFocus = addMonths(baseDate, 1); break;
         case 'Enter':
         case ' ': {
-          const target = this.focusedDate || this.selectedDate || new Date();
-          if (!isDateOutOfBounds(target, this.options.minDate, this.options.maxDate) && !(this.options.disableDates && this.options.disableDates(target))) {
+          const target = startOfDay(this.focusedDate || this.selectedDate || new Date());
+          if (isDateOutOfBounds(target, this.options.minDate, this.options.maxDate)) return;
+          if (this.options.disableDates && this.options.disableDates(target)) return;
+          if (this.options.range) {
+            this._handleRangeClick(target);
+          } else {
             this._selectDate(target, 'user');
-            if (this.options.autoClose && !this.options.inline) this.close();
+            if (!this.options.confirm && this.options.autoClose && !this.options.inline) this.close();
           }
           return;
         }
@@ -827,18 +1182,62 @@
       if (isDateOutOfBounds(today, this.options.minDate, this.options.maxDate)) return;
       if (this.options.disableDates && this.options.disableDates(today)) return;
       this.currentViewMonth = startOfMonth(today);
-      if (this.options.enableTime) {
-        this.timeHours = now.getHours();
-        this.timeMinutes = clampMinuteToStep(now.getMinutes(), this.options.timeStep);
-        this._updateTimeInputs();
+      if (this.options.range) {
+        if (!this.rangeStart && !this.rangeEnd) {
+          if (this.options.enableTime) {
+            this.startHours = now.getHours();
+            this.startMinutes = clampMinuteToStep(now.getMinutes(), this.options.timeStep);
+            this.setRange(new Date(today.getFullYear(), today.getMonth(), today.getDate(), this.startHours, this.startMinutes), 'user');
+          } else {
+            this.setRange({ start: today, end: null }, 'user');
+          }
+        } else if (this.rangeStart && !this.rangeEnd) {
+          if (today < this.rangeStart) {
+            if (this.options.enableTime) {
+              this.startHours = now.getHours();
+              this.startMinutes = clampMinuteToStep(now.getMinutes(), this.options.timeStep);
+              this.setRange(new Date(today.getFullYear(), today.getMonth(), today.getDate(), this.startHours, this.startMinutes), 'user');
+            } else {
+              this.setRange({ start: today, end: null }, 'user');
+            }
+          } else {
+            if (this.options.enableTime) {
+              this.endHours = now.getHours();
+              this.endMinutes = clampMinuteToStep(now.getMinutes(), this.options.timeStep);
+              this.setRange({ start: this.rangeStart, end: new Date(today.getFullYear(), today.getMonth(), today.getDate(), this.endHours, this.endMinutes) }, 'user');
+            } else {
+              this.setRange({ start: this.rangeStart, end: today }, 'user');
+            }
+            if (!this.options.confirm && this.options.autoClose && !this.options.inline) this.close();
+          }
+        } else {
+          if (this.options.enableTime) {
+            this.startHours = now.getHours(); this.endHours = now.getHours();
+            this.startMinutes = this.endMinutes = clampMinuteToStep(now.getMinutes(), this.options.timeStep);
+            this.setRange({ start: new Date(today.getFullYear(), today.getMonth(), today.getDate(), this.startHours, this.startMinutes), end: new Date(today.getFullYear(), today.getMonth(), today.getDate(), this.endHours, this.endMinutes) }, 'user');
+          } else {
+            this.setRange({ start: today, end: today }, 'user');
+          }
+          if (!this.options.confirm && this.options.autoClose && !this.options.inline) this.close();
+        }
+      } else {
+        if (this.options.enableTime) {
+          this.timeHours = now.getHours();
+          this.timeMinutes = clampMinuteToStep(now.getMinutes(), this.options.timeStep);
+          this._updateTimeInputs();
+        }
+        this._selectDate(today, 'user');
+        if (this.options.autoClose && !this.options.inline) this.close();
       }
-      this._selectDate(today, 'user');
-      if (this.options.autoClose && !this.options.inline) this.close();
     }
 
     _clearSelection() {
-      this.setDate(null, 'user');
-      if (!this.options.inline && this.options.autoClose) this.close();
+      if (this.options.range) {
+        this.setRange(null, 'user');
+      } else {
+        this.setDate(null, 'user');
+      }
+      if (!this.options.confirm && !this.options.inline && this.options.autoClose) this.close();
     }
 
     _selectDate(date, source) {
@@ -856,7 +1255,6 @@
     _applySelection(dateTime, source) {
       this.selectedDate = new Date(dateTime.getTime());
       const formatted = formatDate(this.selectedDate, this.options.format);
-      this.inputElement.value = formatted;
       this.focusedDate = startOfDay(this.selectedDate);
       this._render();
       if (typeof this.options.onSelect === 'function') {
@@ -864,8 +1262,11 @@
           this.options.onSelect(new Date(this.selectedDate.getTime()), { formatted: formatted, source: source || 'api' });
         } catch (_) {}
       }
-      const changeEvent = new Event('change', { bubbles: true });
-      this.inputElement.dispatchEvent(changeEvent);
+      if (!this.options.confirm) {
+        this.inputElement.value = formatted;
+        const changeEvent = new Event('change', { bubbles: true });
+        this.inputElement.dispatchEvent(changeEvent);
+      }
     }
 
     open() {
@@ -936,15 +1337,26 @@
     }
 
     setDate(dateOrString, source) {
+      if (this.options.range) {
+        // Range 모드에서는 setDate를 start만 설정하도록 동작시킴
+        if (!dateOrString) {
+          this.setRange(null, source || 'api');
+          return;
+        }
+        this.setRange({ start: dateOrString, end: this.rangeEnd }, source || 'api');
+        return;
+      }
       if (!dateOrString) {
         this.selectedDate = null;
-        this.inputElement.value = '';
+        if (!this.options.confirm) this.inputElement.value = '';
         this._render();
         if (typeof this.options.onSelect === 'function') {
           try { this.options.onSelect(null, { formatted: '', source: source || 'api' }); } catch (_) {}
         }
-        const changeEvent = new Event('change', { bubbles: true });
-        this.inputElement.dispatchEvent(changeEvent);
+        if (!this.options.confirm) {
+          const changeEvent = new Event('change', { bubbles: true });
+          this.inputElement.dispatchEvent(changeEvent);
+        }
         return;
       }
       const parsed = this._normalizeDate(dateOrString);
@@ -975,20 +1387,30 @@
         var enable = Boolean(partial.enableTime);
         if (enable && !this.options.enableTime) {
           this.options.enableTime = true;
-          if (!this.timeRow) {
-            this._buildTimeControls();
-            if (this.timeRow) {
-              // insert before footer
-              this.calendarElement.insertBefore(this.timeRow, this.footer);
+          // 시간 선택 활성화 시 완료 버튼 강제 활성화
+          if (!this.options.confirm) {
+            this.options.confirm = true;
+            if (!this.doneButton) {
+              var selfConfirm = this;
+              this.doneButton = createElement('button', 'dp-btn dp-done', { type: 'button' });
+              this.doneButton.textContent = this.options.i18n.buttons.done;
+              this.doneButton.addEventListener('click', function () { selfConfirm._commitValue(); });
+              if (this.footer) this.footer.appendChild(this.doneButton);
             }
+          }
+          if (this.options.range) {
+            if (this.timeRow && this.timeRow.parentNode) this.timeRow.parentNode.removeChild(this.timeRow);
+            this.timeRow = null; this.ampmSelect = null;
+            if (!this.timeRangeRow) { this._buildRangeTimeControls(); if (this.timeRangeRow) this.calendarElement.insertBefore(this.timeRangeRow, this.footer); }
+          } else {
+            if (!this.timeRow) { this._buildTimeControls(); if (this.timeRow) this.calendarElement.insertBefore(this.timeRow, this.footer); }
           }
         } else if (!enable && this.options.enableTime) {
           this.options.enableTime = false;
-          if (this.timeRow && this.timeRow.parentNode) {
-            this.timeRow.parentNode.removeChild(this.timeRow);
-          }
-          this.timeRow = null;
-          this.ampmSelect = null;
+          if (this.timeRow && this.timeRow.parentNode) this.timeRow.parentNode.removeChild(this.timeRow);
+          if (this.timeRangeRow && this.timeRangeRow.parentNode) this.timeRangeRow.parentNode.removeChild(this.timeRangeRow);
+          this.timeRow = null; this.timeRangeRow = null;
+          this.ampmSelect = null; this.startAmpmSelect = null; this.endAmpmSelect = null;
         }
       }
       if (Object.prototype.hasOwnProperty.call(partial, 'timeStep')) {
@@ -997,6 +1419,16 @@
         if (this.options.enableTime && this.timeRow) {
           this._rebuildMinuteOptions();
           this._updateTimeInputs();
+        } else if (this.options.enableTime && this.timeRangeRow) {
+          // Rebuild minutes for both range minute selects
+          const rebuild = (select) => {
+            if (!select) return;
+            const step = Number(this.options.timeStep) > 0 ? Number(this.options.timeStep) : 5;
+            select.textContent = '';
+            let m = 0; while (m < 60) { const opt = document.createElement('option'); opt.value = String(m); opt.textContent = padStartNumber(m, 2); select.appendChild(opt); m += step; }
+          };
+          rebuild(this.startMinuteSelect); rebuild(this.endMinuteSelect);
+          this._updateRangeTimeInputs();
         }
       }
       if (Object.prototype.hasOwnProperty.call(partial, 'showAnalogClock')) {
@@ -1078,8 +1510,88 @@
           }
         }
       }
+      if (Object.prototype.hasOwnProperty.call(partial, 'range')) {
+        var wantRange = Boolean(partial.range);
+        if (wantRange !== this.options.range) {
+          this.options.range = wantRange;
+          if (this.options.range) {
+            // Switch to range mode
+            if (this.timeRow && this.timeRow.parentNode) { this.timeRow.parentNode.removeChild(this.timeRow); }
+            this.timeRow = null; this.ampmSelect = null;
+            if (this.options.enableTime && !this.timeRangeRow) { this._buildRangeTimeControls(); if (this.timeRangeRow) this.calendarElement.insertBefore(this.timeRangeRow, this.footer); }
+            this.selectedDate = null;
+            const existing = String(this.inputElement.value || '').trim();
+            const rg = existing ? this._parseRangeString(existing) : null;
+            this.rangeStart = rg ? rg.start : null;
+            this.rangeEnd = rg ? rg.end : null;
+          } else {
+            // Switch to single mode
+            const carry = this.rangeStart ? new Date(this.rangeStart.getTime()) : null;
+            this.rangeStart = null; this.rangeEnd = null; this.hoveringDate = null;
+            if (this.timeRangeRow && this.timeRangeRow.parentNode) { this.timeRangeRow.parentNode.removeChild(this.timeRangeRow); }
+            this.timeRangeRow = null; this.startAmpmSelect = null; this.endAmpmSelect = null;
+            if (this.options.enableTime && !this.timeRow) { this._buildTimeControls(); if (this.timeRow) this.calendarElement.insertBefore(this.timeRow, this.footer); }
+            this.setDate(carry, 'api');
+          }
+        }
+      }
+      if (Object.prototype.hasOwnProperty.call(partial, 'rangeSeparator')) {
+        this.options.rangeSeparator = partial.rangeSeparator || this.options.rangeSeparator || ' - ';
+      }
+      if (Object.prototype.hasOwnProperty.call(partial, 'confirm')) {
+        var wantConfirm = Boolean(partial.confirm);
+        if (wantConfirm !== this.options.confirm) {
+          this.options.confirm = wantConfirm;
+          var selfUpd2 = this;
+          if (wantConfirm) {
+            if (!this.doneButton) {
+              this.doneButton = createElement('button', 'dp-btn dp-done', { type: 'button' });
+              this.doneButton.textContent = this.options.i18n.buttons.done;
+              this.doneButton.addEventListener('click', function () { selfUpd2._commitValue(); });
+              if (this.footer) this.footer.appendChild(this.doneButton);
+            }
+          } else {
+            if (this.doneButton && this.doneButton.parentNode) this.doneButton.parentNode.removeChild(this.doneButton);
+            this.doneButton = null;
+          }
+        }
+      }
       this._renderWeekdays();
       this._render();
+    }
+
+    _handleRangeClick(dayDate) {
+      if (!this.options.range) return;
+      if (!this.rangeStart || (this.rangeStart && this.rangeEnd)) {
+        // 시작 새로 지정
+        if (this.options.enableTime) {
+          this.rangeStart = new Date(dayDate.getFullYear(), dayDate.getMonth(), dayDate.getDate(), this.startHours || 0, this.startMinutes || 0);
+        } else {
+          this.rangeStart = startOfDay(dayDate);
+        }
+        this.rangeEnd = null;
+        this.hoveringDate = null;
+        this._syncRangeValue('user');
+        this._updateRangeTimeInputs();
+        this._render();
+        return;
+      }
+      // start만 있고 end 없음
+      const start = this.rangeStart;
+      let end = this.options.enableTime
+        ? new Date(dayDate.getFullYear(), dayDate.getMonth(), dayDate.getDate(), this.endHours || 0, this.endMinutes || 0)
+        : startOfDay(dayDate);
+      if (end < start) {
+        this.rangeEnd = start;
+        this.rangeStart = end;
+      } else {
+        this.rangeEnd = end;
+      }
+      this.hoveringDate = null;
+      this._syncRangeValue('user');
+      this._updateRangeTimeInputs();
+      this._render();
+      if (!this.options.confirm && this.options.autoClose && !this.options.inline) this.close();
     }
 
     setMinDate(dateOrString) { this.updateOptions({ minDate: dateOrString }); }
@@ -1115,5 +1627,3 @@
     }
   }
 })();
-
-

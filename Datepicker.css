@@ -138,6 +138,17 @@
   color: var(--dp-accent-contrast);
 }
 
+/* Range selection */
+.dp-day.is-in-range {
+  background: var(--dp-focus);
+  color: var(--dp-text);
+}
+.dp-day.is-range-start,
+.dp-day.is-range-end {
+  background: var(--dp-accent);
+  color: var(--dp-accent-contrast);
+}
+
 .dp-day.is-outside {
   color: var(--dp-muted);
 }
@@ -159,7 +170,7 @@
 .dp-footer {
   display: flex;
   gap: 8px;
-  justify-content: space-between;
+  justify-content: flex-start;
   margin-top: 10px;
 }
 
@@ -178,6 +189,9 @@
 
 .dp-clear { color: #b91c1c; }
 .dp-today { color: #065f46; }
+
+/* Place Clear (+ following siblings like Done) to the right */
+.dp-footer .dp-clear { margin-left: auto; }
 
 
 
@@ -246,8 +260,8 @@
 }
 
 .dp-time select {
-  padding: 6px 8px;
-  font-size: 13px;
+  padding: 5px 7px;
+  font-size: 12px;
   border-radius: 8px;
   border: 1px solid var(--dp-border);
   background: var(--dp-bg);
@@ -255,3 +269,16 @@
 }
 
 .dp-time select:focus { outline: 2px solid var(--dp-focus); outline-offset: 2px; }
+
+/* Range time row */
+.dp-time-range {
+  display: grid;
+  grid-template-columns: 1fr; /* 두 줄(행) 배치 */
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+.dp-time-group { display: flex; gap: 8px; align-items: center; }
+.dp-time-label { font-size: 12px; color: var(--dp-muted); min-width: 28px; }
+.dp-time-group select { padding: 5px 7px; font-size: 12px; border-radius: 8px; border: 1px solid var(--dp-border); background: var(--dp-bg); color: var(--dp-text); }
+.dp-time-group select:focus { outline: 2px solid var(--dp-focus); outline-offset: 2px; }
