@@ -1,5 +1,5 @@
 ## DatePicker (Pure JS)
-<img width="2475" height="1333" alt="image" src="https://github.com/user-attachments/assets/b90cf817-6801-4f11-ae8d-d3ece9edab40" />
+<img width="1319" height="1096" alt="image" src="https://github.com/user-attachments/assets/90d68a77-308c-4348-a47f-53d2c4f2877d" />
 
 간단하고 가벼운 순수 JavaScript 데이트피커입니다. 날짜 선택은 기본, 선택적으로 시간 선택과 아날로그 시계 표시를 지원합니다. 외부 라이브러리 의존성이 없습니다.
 
