@@ -43,6 +43,14 @@
 .dp.has-clock .dp-content { grid-template-columns: 1fr 200px; }
 
 .dp-main { min-width: 260px; }
+.dp-weekly-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.dp-weekly-title { font-weight: 600; font-size: 14px; }
+
 
 .dp * { box-sizing: border-box; }
 
@@ -111,6 +119,29 @@
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   gap: 4px;
+}
+
+/* Weekly selection bar */
+.dp-weekly {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  margin-bottom: 6px;
+}
+.dp-weekday-toggle {
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid var(--dp-border);
+  background: var(--dp-bg);
+  color: var(--dp-text);
+  font-size: 12px;
+  cursor: pointer;
+}
+.dp-weekday-toggle:hover { background: var(--dp-hover); }
+.dp-weekday-toggle:focus { outline: 2px solid var(--dp-focus); outline-offset: 2px; }
+.dp-weekday-toggle.is-active {
+  background: var(--dp-accent);
+  color: var(--dp-accent-contrast);
 }
 
 .dp-day {

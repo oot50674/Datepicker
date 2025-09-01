@@ -21,6 +21,49 @@
 </script>
 ```
 
+### 주간/월간 스케줄 선택
+`scheduleMode` 옵션으로 날짜가 아닌 특정 요일이나 일을 선택하는 UI를 활성화할 수 있습니다. 주간/월간 선택은 배열 기반으로 동작하며, 기존 문자열 형식도 호환됩니다.
+
+```html
+<input id="weekly" placeholder="[1,3,5]" />
+<input id="monthly" placeholder="[1,15,31]" />
+<script>
+  // 주간 다중 선택
+  const dpWeekly = new DatePicker('#weekly', {
+    scheduleMode: 'weekly',
+    scheduleWeeklyMulti: true,
+    confirm: true, // 완료 버튼으로 확정
+    onSelectSchedule: (payload, ctx) => {
+      console.log('선택된 요일 배열 (0=일~6=토):', payload.array); // [1, 3, 5]
+      console.log('주간 세트:', payload.weekly); // Set {1, 3, 5}
+    }
+  });
+
+  // 월간 단일 선택
+  const dpMonthly = new DatePicker('#monthly', {
+    scheduleMode: 'monthly',
+    scheduleMonthlyMulti: false, // 하나만 선택 가능
+    confirm: true,
+    onSelectSchedule: (payload, ctx) => {
+      console.log('선택된 일자 배열:', payload.array); // [15]
+      console.log('월간 세트:', payload.monthly); // Set {15}
+    }
+  });
+
+  // API를 통한 값 설정
+  dpWeekly.setSchedule({ weekly: [1, 3, 5] }); // 월, 수, 금 선택
+  dpMonthly.setSchedule({ monthly: [1, 15] }); // 1일, 15일 선택
+
+  // 값 조회
+  const weeklySchedule = dpWeekly.getSchedule();
+  console.log(weeklySchedule); // { mode: 'weekly', weekly: [1, 3, 5], monthly: [], array: [1, 3, 5] }
+</script>
+```
+**값 형식:**
+- 주간: `[1, 3, 5]` (월=1, 화=2, 수=3, 목=4, 금=5, 토=6, 일=7/0)
+- 월간: `[1, 15, 31]` (1일, 15일, 31일)
+- 기존 문자열 형식(`weekly:1,3,5`)도 호환 지원
+    
 ### 날짜+시간 선택 예시 (24시간/12시간 모드)
 ```html
 <input id="dt" type="text" placeholder="yyyy-MM-dd HH:mm" />
@@ -77,7 +120,11 @@
 - **rangeSeparator**: 기간 표시 구분자(기본 ` - `)
   - `range: true`와 `enableTime: true`를 함께 사용하면 시작/종료 각각의 시간 선택 UI가 표시됩니다.
  - **confirm**: 완료 버튼 표시 및 확정 방식 사용. 버튼을 눌러야 입력값이 반영되고 창이 닫힘
-
+ - **scheduleMode**: `'none'|'weekly'|'monthly'`. 주간/월간 스케줄 선택 모드 활성화
+ - **scheduleWeeklyMulti**: 주간 모드에서 다중 선택 활성화(기본 true)
+ - **scheduleMonthlyMulti**: 월간 모드에서 다중 선택 활성화(기본 true)
+ - **onSelectSchedule(payload, ctx)**: 스케줄 선택 시 콜백. `payload`는 `{ mode, weekly, monthly }` 형태.
+    
 참고: 연/월 선택은 헤더의 셀렉트 박스로 제공됩니다. `minDate`/`maxDate`가 설정된 경우 연도 셀렉트 범위가 해당 범위에 맞춰집니다.
 
 ### 포맷 토큰
@@ -96,6 +143,8 @@
 - `setDate(dateOrString, source?)`
 - `getRange(): { start: Date|null, end: Date|null }` (range 모드 전용)
 - `setRange(range | [start, end] | string, source?)` (range 모드 전용)
+- `getSchedule(): { mode, weekly, monthly, array } | null` (schedule 모드 전용)
+- `setSchedule(payload, source?)` (schedule 모드 전용)
 - `updateOptions(partialOptions)`
 - `setMinDate(dateOrString)` / `setMaxDate(dateOrString)`
 

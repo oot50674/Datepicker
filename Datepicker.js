@@ -282,7 +282,18 @@
         range: Boolean(initialOptions.range),
         rangeSeparator: initialOptions.rangeSeparator || ' - ',
         confirm: Boolean(initialOptions.confirm),
+        // Schedule options
+        scheduleMode: initialOptions.scheduleMode || 'none', // 'none' | 'weekly' | 'monthly'
+        scheduleWeeklyMulti: initialOptions.scheduleWeeklyMulti !== false,
+        scheduleMonthlyMulti: initialOptions.scheduleMonthlyMulti !== false,
+        onSelectSchedule: typeof initialOptions.onSelectSchedule === 'function' ? initialOptions.onSelectSchedule : null,
       };
+
+      // 스케줄 모드에서는 시간/범위 기능 비활성화
+      if (this.options.scheduleMode && this.options.scheduleMode !== 'none') {
+        this.options.enableTime = false;
+        this.options.range = false;
+      }
 
       // 시간 선택이 가능한 경우, 완료 버튼은 항상 활성화
       if (this.options.enableTime) {
@@ -290,6 +301,10 @@
       }
 
       this.selectedDate = null;
+      // Schedule state
+      this.scheduleWeeklySelected = new Set(); // values: 0..6 (Sun..Sat)
+      this.scheduleMonthlySelected = new Set(); // values: 1..31
+      this.weeklyRow = null;
       this.rangeStart = null;
       this.rangeEnd = null;
       this.hoveringDate = null;
@@ -304,7 +319,12 @@
 
       const existingValue = String(this.inputElement.value || '').trim();
       if (existingValue) {
-        if (this.options.range) {
+        if (this.options.scheduleMode === 'weekly' || this.options.scheduleMode === 'monthly') {
+          var daysArray = this._parseScheduleArray(existingValue);
+          var targetSet = this.options.scheduleMode === 'weekly' ? this.scheduleWeeklySelected : this.scheduleMonthlySelected;
+          var i;
+          for (i = 0; i < daysArray.length; i += 1) { targetSet.add(daysArray[i]); }
+        } else if (this.options.range) {
           const rg = this._parseRangeString(existingValue);
           if (rg) {
             this.rangeStart = rg.start;
@@ -455,6 +475,7 @@
 
       // Header
       const header = createElement('div', 'dp-header');
+      this.headerElement = header;
       this.prevButton = createElement('button', 'dp-nav dp-prev', { type: 'button', 'aria-label': this.options.i18n.aria.previousMonth });
       this.prevButton.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M15 6L9 12L15 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
       this.nextButton = createElement('button', 'dp-nav dp-next', { type: 'button', 'aria-label': this.options.i18n.aria.nextMonth });
@@ -472,6 +493,12 @@
 
       // Days grid
       this.daysGrid = createElement('div', 'dp-days', { role: 'grid' });
+      // Weekly controls (optional)
+      this.weeklyRow = null;
+      if (this.options.scheduleMode === 'weekly') {
+        this._buildWeeklyControls();
+        this._buildWeeklyHeader();
+      }
       // Hover leave handler for range preview
       var selfGrid = this;
       this.daysGrid.addEventListener('mouseleave', function () {
@@ -511,9 +538,17 @@
       // Build content layout (main + optional clock)
       this.contentElement = createElement('div', 'dp-content');
       this.mainContainer = createElement('div', 'dp-main');
-      this.mainContainer.appendChild(header);
-      this.mainContainer.appendChild(this.weekdaysRow);
-      this.mainContainer.appendChild(this.daysGrid);
+      if (this.options.scheduleMode === 'weekly') {
+        if (this.weeklyHeaderElement) this.mainContainer.appendChild(this.weeklyHeaderElement);
+        if (this.weeklyRow) this.mainContainer.appendChild(this.weeklyRow);
+      } else if (this.options.scheduleMode === 'monthly') {
+        // monthly: only days grid (no header, no weekdays)
+        this.mainContainer.appendChild(this.daysGrid);
+      } else {
+        this.mainContainer.appendChild(header);
+        this.mainContainer.appendChild(this.weekdaysRow);
+        this.mainContainer.appendChild(this.daysGrid);
+      }
       this.mainContainer.appendChild(this.footer);
 
       // Optional clock
@@ -598,6 +633,179 @@
       }
       this.clockFace.appendChild(this.clockNumbers);
       this.clockContainer.appendChild(this.clockFace);
+    }
+
+    _buildWeeklyControls() {
+      this.weeklyRow = createElement('div', 'dp-weekly');
+      var order = [1, 2, 3, 4, 5, 6, 0]; // Mon..Sun in JS getDay index
+      var self = this;
+      this.weeklyButtons = [];
+      var i;
+      for (i = 0; i < order.length; i += 1) {
+        var dayIndex = order[i];
+        var label = '';
+        try {
+          // Try localized short weekday names, fallback to numbers
+          var fmt = new Intl.DateTimeFormat(getDefaultLocale(), { weekday: 'short' });
+          label = fmt.format(new Date(2020, 10, 1 + dayIndex));
+        } catch (_) {
+          label = String(dayIndex);
+        }
+        var btn = createElement('button', 'dp-weekday-toggle', { type: 'button', 'data-day': String(dayIndex) });
+        btn.textContent = label;
+        (function (el, idx) {
+          el.addEventListener('click', function () {
+            self._toggleWeeklyDay(idx, true);
+          });
+        })(btn, dayIndex);
+        this.weeklyButtons.push(btn);
+        this.weeklyRow.appendChild(btn);
+      }
+      this._updateWeeklyUI();
+    }
+
+    _buildWeeklyHeader() {
+      var title = '';
+      try {
+        var isKo = String(getDefaultLocale()).startsWith('ko');
+        title = isKo ? '주간 스케줄 선택' : 'Weekly Schedule';
+      } catch (_) {
+        title = 'Weekly Schedule';
+      }
+      this.weeklyHeaderElement = createElement('div', 'dp-weekly-header');
+      var left = createElement('div', 'dp-weekly-title');
+      left.textContent = title;
+      var right = createElement('div', 'dp-header-right');
+      // 재사용 가능한 Clear/Today/D one 은 하단에 이미 존재하므로 우측은 비워둠
+      this.weeklyHeaderElement.appendChild(left);
+      this.weeklyHeaderElement.appendChild(right);
+    }
+
+    _updateWeeklyUI() {
+      if (!this.weeklyButtons) return;
+      var i;
+      for (i = 0; i < this.weeklyButtons.length; i += 1) {
+        var btn = this.weeklyButtons[i];
+        var idx = Number(btn.getAttribute('data-day'));
+        if (this.scheduleWeeklySelected.has(idx)) {
+          btn.classList.add('is-active');
+          btn.setAttribute('aria-pressed', 'true');
+        } else {
+          btn.classList.remove('is-active');
+          btn.setAttribute('aria-pressed', 'false');
+        }
+      }
+    }
+
+    _toggleWeeklyDay(dayIndex, fromUser) {
+      if (this.options.scheduleMode !== 'weekly') return;
+      var idx = Math.max(0, Math.min(6, Number(dayIndex) || 0));
+      if (this.options.scheduleWeeklyMulti) {
+        if (this.scheduleWeeklySelected.has(idx)) {
+          this.scheduleWeeklySelected.delete(idx);
+        } else {
+          this.scheduleWeeklySelected.add(idx);
+        }
+      } else {
+        this.scheduleWeeklySelected.clear();
+        this.scheduleWeeklySelected.add(idx);
+      }
+      this._updateWeeklyUI();
+      this._syncScheduleValue(fromUser ? 'user' : 'api');
+    }
+
+    _toggleMonthlyDay(dayOfMonth, fromUser) {
+      if (this.options.scheduleMode !== 'monthly') return;
+      var d = Math.max(1, Math.min(31, Number(dayOfMonth) || 1));
+      if (this.options.scheduleMonthlyMulti) {
+        if (this.scheduleMonthlySelected.has(d)) {
+          this.scheduleMonthlySelected.delete(d);
+        } else {
+          this.scheduleMonthlySelected.add(d);
+        }
+      } else {
+        this.scheduleMonthlySelected.clear();
+        this.scheduleMonthlySelected.add(d);
+      }
+      this._syncScheduleValue(fromUser ? 'user' : 'api');
+      this._render();
+    }
+
+    _formatScheduleArray() {
+      if (this.options.scheduleMode === 'weekly') {
+        var arrW = Array.from(this.scheduleWeeklySelected);
+        arrW.sort(function (a, b) { return a - b; });
+        // Display 1..7 with Mon=1..Sun=7
+        var disp = arrW.map(function (v) { return v === 0 ? 7 : v; });
+        return disp;
+      }
+      if (this.options.scheduleMode === 'monthly') {
+        var arrM = Array.from(this.scheduleMonthlySelected);
+        arrM.sort(function (a, b) { return a - b; });
+        return arrM;
+      }
+      return [];
+    }
+
+    _parseScheduleArray(value) {
+      // Support both string format (backward compatibility) and array format
+      if (Array.isArray(value)) {
+        return value;
+      }
+
+      if (!value) return [];
+      var v = String(value).trim();
+      var low = v.toLowerCase();
+      var listStr = '';
+
+      if (low.indexOf('weekly:') === 0 || low.indexOf('w:') === 0) {
+        listStr = v.substring(v.indexOf(':') + 1);
+      } else if (low.indexOf('monthly:') === 0 || low.indexOf('m:') === 0) {
+        listStr = v.substring(v.indexOf(':') + 1);
+      } else {
+        // Try to parse as comma-separated numbers
+        listStr = v;
+      }
+
+      var raw = listStr.split(/[,\s]+/).filter(function (s) { return s.length > 0; });
+      var days = [];
+      var i;
+      for (i = 0; i < raw.length; i += 1) {
+        var n = Number(raw[i]);
+        if (!Number.isFinite(n)) continue;
+        // For weekly mode, convert 7 (Sun) to 0
+        if (this.options.scheduleMode === 'weekly' && n === 7) {
+          n = 0;
+        }
+        days.push(n);
+      }
+      return days;
+    }
+
+    _syncScheduleValue(source) {
+      if (!this.options || (this.options.scheduleMode === 'none')) return;
+      var scheduleArray = this._formatScheduleArray();
+      var formattedString = scheduleArray.join(',');
+
+      // Keep input element value as string for backward compatibility
+      if (!this.options.confirm) {
+        this.inputElement.value = formattedString;
+      }
+
+      if (typeof this.options.onSelectSchedule === 'function') {
+        try {
+          this.options.onSelectSchedule({
+            mode: this.options.scheduleMode,
+            weekly: Array.from(this.scheduleWeeklySelected),
+            monthly: Array.from(this.scheduleMonthlySelected),
+            array: scheduleArray
+          }, { formatted: formattedString, source: source || 'api' });
+        } catch (_) {}
+      }
+      if (!this.options.confirm) {
+        var changeEvent = new Event('change', { bubbles: true });
+        this.inputElement.dispatchEvent(changeEvent);
+      }
     }
 
     _updateClock() {
@@ -996,6 +1204,26 @@
 
       // Build days grid
       this.daysGrid.textContent = '';
+      if (this.options.scheduleMode === 'monthly') {
+        // Pure day-of-month grid 1..31
+        for (let d = 1; d <= 31; d += 1) {
+          const cell = createElement('button', 'dp-day', {
+            type: 'button',
+            role: 'gridcell',
+            'aria-selected': String(this.scheduleMonthlySelected.has(d)),
+            'aria-disabled': 'false',
+            'data-day': String(d),
+          });
+          cell.textContent = String(d);
+          if (this.scheduleMonthlySelected.has(d)) cell.classList.add('is-selected');
+          const selfMon = this;
+          cell.addEventListener('click', function () { selfMon._toggleMonthlyDay(d, true); });
+          this.daysGrid.appendChild(cell);
+        }
+        this._updateClock();
+        if (this.options.scheduleMode === 'weekly') this._updateWeeklyUI();
+        return;
+      }
       const firstDay = startOfMonth(this.currentViewMonth);
       const lastDay = endOfMonth(this.currentViewMonth);
       const gridStart = startOfWeek(firstDay, this.options.firstDayOfWeek);
@@ -1009,7 +1237,9 @@
           continue;
         }
         const isToday = areSameCalendarDate(dayDate, new Date());
-        const isSelectedSingle = !this.options.range && this.selectedDate ? areSameCalendarDate(dayDate, this.selectedDate) : false;
+        const isSelectedSingle = (this.options.scheduleMode === 'none' && !this.options.range && this.selectedDate)
+          ? areSameCalendarDate(dayDate, this.selectedDate)
+          : false;
         const disabledByBounds = isDateOutOfBounds(dayDate, this.options.minDate, this.options.maxDate);
         const disabledByFn = this.options.disableDates ? this.options.disableDates(dayDate) : false;
         const isDisabled = disabledByBounds || Boolean(disabledByFn);
@@ -1027,14 +1257,27 @@
         if (isSelectedSingle) cell.classList.add('is-selected');
         if (isDisabled) cell.classList.add('is-disabled');
 
+        // Monthly schedule selection highlight
+        if (this.options.scheduleMode === 'monthly' && this.scheduleMonthlySelected && this.scheduleMonthlySelected.size > 0) {
+          var dom = dayDate.getDate();
+          if (!isDisabled && !isOutside && this.scheduleMonthlySelected.has(dom)) {
+            cell.classList.add('is-selected');
+            cell.setAttribute('aria-selected', 'true');
+          }
+        }
+
         // Range selection rendering (initial highlighting; hover updates are incremental)
-        if (this.options.range) {
+        if (this.options.range && this.options.scheduleMode === 'none') {
           // actual highlighting is done in _updateRangeHighlight()
         }
 
         if (!isDisabled) {
           var selfCell = this;
-          if (this.options.range) {
+          if (this.options.scheduleMode === 'monthly') {
+            cell.addEventListener('click', function () {
+              if (!isOutside) selfCell._toggleMonthlyDay(dayDate.getDate(), true);
+            });
+          } else if (this.options.range) {
             cell.addEventListener('click', function () {
               selfCell._handleRangeClick(dayDate);
             });
@@ -1054,8 +1297,9 @@
 
         this.daysGrid.appendChild(cell);
       }
-      if (this.options.range) this._updateRangeHighlight();
+      if (this.options.range && this.options.scheduleMode === 'none') this._updateRangeHighlight();
       this._updateClock();
+      if (this.options.scheduleMode === 'weekly') this._updateWeeklyUI();
     }
 
     _updateRangeHighlight() {
@@ -1087,6 +1331,26 @@
     _commitValue() {
       // Commit current selection into input and close
       if (!this.options.confirm) return;
+      // Schedule commit
+      if (this.options.scheduleMode && this.options.scheduleMode !== 'none') {
+        var scheduleArray = this._formatScheduleArray();
+        var formattedString = scheduleArray.join(',');
+        this.inputElement.value = formattedString;
+        if (typeof this.options.onSelectSchedule === 'function') {
+          try {
+            this.options.onSelectSchedule({
+              mode: this.options.scheduleMode,
+              weekly: Array.from(this.scheduleWeeklySelected),
+              monthly: Array.from(this.scheduleMonthlySelected),
+              array: scheduleArray
+            }, { formatted: formattedString, source: 'confirm' });
+          } catch (_) {}
+        }
+        var chEvtS = new Event('change', { bubbles: true });
+        this.inputElement.dispatchEvent(chEvtS);
+        if (!this.options.inline) this.close();
+        return;
+      }
       let formatted = '';
       if (this.options.range) {
         formatted = this._formatRangeString(this.rangeStart, this.rangeEnd);
@@ -1139,6 +1403,14 @@
         case 'Enter':
         case ' ': {
           const target = startOfDay(this.focusedDate || this.selectedDate || new Date());
+          if (this.options.scheduleMode === 'monthly') {
+            this._toggleMonthlyDay(target.getDate(), true);
+            return;
+          }
+          if (this.options.scheduleMode === 'weekly') {
+            this._toggleWeeklyDay(target.getDay(), true);
+            return;
+          }
           if (isDateOutOfBounds(target, this.options.minDate, this.options.maxDate)) return;
           if (this.options.disableDates && this.options.disableDates(target)) return;
           if (this.options.range) {
@@ -1179,6 +1451,14 @@
     _selectToday() {
       const now = new Date();
       const today = startOfDay(now);
+      if (this.options.scheduleMode === 'weekly') {
+        this._toggleWeeklyDay(today.getDay(), true);
+        return;
+      }
+      if (this.options.scheduleMode === 'monthly') {
+        this._toggleMonthlyDay(today.getDate(), true);
+        return;
+      }
       if (isDateOutOfBounds(today, this.options.minDate, this.options.maxDate)) return;
       if (this.options.disableDates && this.options.disableDates(today)) return;
       this.currentViewMonth = startOfMonth(today);
@@ -1232,7 +1512,15 @@
     }
 
     _clearSelection() {
-      if (this.options.range) {
+      if (this.options.scheduleMode === 'weekly') {
+        this.scheduleWeeklySelected.clear();
+        this._updateWeeklyUI();
+        this._syncScheduleValue('user');
+      } else if (this.options.scheduleMode === 'monthly') {
+        this.scheduleMonthlySelected.clear();
+        this._syncScheduleValue('user');
+        this._render();
+      } else if (this.options.range) {
         this.setRange(null, 'user');
       } else {
         this.setDate(null, 'user');
@@ -1372,6 +1660,63 @@
 
     updateOptions(partial) {
       if (!partial || typeof partial !== 'object') return;
+      // Schedule related options first to control other features
+      if (Object.prototype.hasOwnProperty.call(partial, 'onSelectSchedule')) {
+        this.options.onSelectSchedule = typeof partial.onSelectSchedule === 'function' ? partial.onSelectSchedule : null;
+      }
+      if (Object.prototype.hasOwnProperty.call(partial, 'scheduleWeeklyMulti')) {
+        this.options.scheduleWeeklyMulti = partial.scheduleWeeklyMulti !== false;
+      }
+      if (Object.prototype.hasOwnProperty.call(partial, 'scheduleMonthlyMulti')) {
+        this.options.scheduleMonthlyMulti = partial.scheduleMonthlyMulti !== false;
+      }
+      if (Object.prototype.hasOwnProperty.call(partial, 'scheduleMode')) {
+        var prevMode = this.options.scheduleMode || 'none';
+        var nextMode = partial.scheduleMode || 'none';
+        if (nextMode !== prevMode) {
+          this.options.scheduleMode = nextMode;
+          // disable time/range when schedule mode is active
+          if (nextMode !== 'none') {
+            this.options.enableTime = false;
+            this.options.range = false;
+            if (this.timeRow && this.timeRow.parentNode) this.timeRow.parentNode.removeChild(this.timeRow);
+            if (this.timeRangeRow && this.timeRangeRow.parentNode) this.timeRangeRow.parentNode.removeChild(this.timeRangeRow);
+            this.timeRow = null; this.timeRangeRow = null;
+            this.ampmSelect = null; this.startAmpmSelect = null; this.endAmpmSelect = null;
+          }
+          // weekly UI
+          if (nextMode === 'weekly') {
+            if (!this.weeklyRow) {
+              this._buildWeeklyControls();
+            }
+            if (!this.weeklyHeaderElement) {
+              this._buildWeeklyHeader();
+            }
+            if (this.mainContainer) {
+              // Remove calendar parts if attached
+              if (this.headerElement && this.headerElement.parentNode) this.headerElement.parentNode.removeChild(this.headerElement);
+              if (this.weekdaysRow && this.weekdaysRow.parentNode) this.weekdaysRow.parentNode.removeChild(this.weekdaysRow);
+              if (this.daysGrid && this.daysGrid.parentNode) this.daysGrid.parentNode.removeChild(this.daysGrid);
+              // Insert weekly row before footer
+              if (this.weeklyHeaderElement && !this.weeklyHeaderElement.parentNode) this.mainContainer.insertBefore(this.weeklyHeaderElement, this.footer);
+              if (this.weeklyRow && !this.weeklyRow.parentNode) this.mainContainer.insertBefore(this.weeklyRow, this.footer);
+            }
+          } else {
+            // Leaving weekly: remove weekly row and re-attach calendar parts
+            if (this.weeklyRow && this.weeklyRow.parentNode) this.weeklyRow.parentNode.removeChild(this.weeklyRow);
+            if (this.weeklyHeaderElement && this.weeklyHeaderElement.parentNode) this.weeklyHeaderElement.parentNode.removeChild(this.weeklyHeaderElement);
+            this.weeklyRow = null;
+            this.weeklyHeaderElement = null;
+            if (this.mainContainer) {
+              if (this.headerElement && !this.headerElement.parentNode) this.mainContainer.insertBefore(this.headerElement, this.footer);
+              if (this.weekdaysRow && !this.weekdaysRow.parentNode) this.mainContainer.insertBefore(this.weekdaysRow, this.footer);
+              if (this.daysGrid && !this.daysGrid.parentNode) this.mainContainer.insertBefore(this.daysGrid, this.footer);
+            }
+          }
+          // sync value on mode change
+          this._syncScheduleValue('api');
+        }
+      }
       if (Object.prototype.hasOwnProperty.call(partial, 'format')) this.options.format = partial.format || DEFAULT_FORMAT;
       if (Object.prototype.hasOwnProperty.call(partial, 'firstDayOfWeek')) this.options.firstDayOfWeek = Number(partial.firstDayOfWeek) || 0;
       if (Object.prototype.hasOwnProperty.call(partial, 'minDate')) this.options.minDate = this._normalizeDate(partial.minDate);
@@ -1385,6 +1730,10 @@
       if (Object.prototype.hasOwnProperty.call(partial, 'position')) this.options.position = partial.position || 'auto';
       if (Object.prototype.hasOwnProperty.call(partial, 'enableTime')) {
         var enable = Boolean(partial.enableTime);
+        // ignore enableTime in schedule mode
+        if ((this.options.scheduleMode && this.options.scheduleMode !== 'none')) {
+          enable = false;
+        }
         if (enable && !this.options.enableTime) {
           this.options.enableTime = true;
           // 시간 선택 활성화 시 완료 버튼 강제 활성화
@@ -1512,6 +1861,10 @@
       }
       if (Object.prototype.hasOwnProperty.call(partial, 'range')) {
         var wantRange = Boolean(partial.range);
+        // ignore range in schedule mode
+        if ((this.options.scheduleMode && this.options.scheduleMode !== 'none')) {
+          wantRange = false;
+        }
         if (wantRange !== this.options.range) {
           this.options.range = wantRange;
           if (this.options.range) {
@@ -1596,6 +1949,36 @@
 
     setMinDate(dateOrString) { this.updateOptions({ minDate: dateOrString }); }
     setMaxDate(dateOrString) { this.updateOptions({ maxDate: dateOrString }); }
+
+    getSchedule() {
+      if (this.options.scheduleMode === 'none') return null;
+      return {
+        mode: this.options.scheduleMode,
+        weekly: Array.from(this.scheduleWeeklySelected),
+        monthly: Array.from(this.scheduleMonthlySelected),
+        array: this._formatScheduleArray()
+      };
+    }
+
+    setSchedule(payload, source) {
+      if (!payload || typeof payload !== 'object') return;
+      if (payload.mode && payload.mode !== this.options.scheduleMode) {
+        this.updateOptions({ scheduleMode: payload.mode });
+      }
+      if (this.options.scheduleMode === 'weekly' && payload.weekly && Array.isArray(payload.weekly)) {
+        this.scheduleWeeklySelected.clear();
+        for (var i = 0; i < payload.weekly.length; i += 1) {
+          this.scheduleWeeklySelected.add(payload.weekly[i]);
+        }
+      } else if (this.options.scheduleMode === 'monthly' && payload.monthly && Array.isArray(payload.monthly)) {
+        this.scheduleMonthlySelected.clear();
+        for (var j = 0; j < payload.monthly.length; j += 1) {
+          this.scheduleMonthlySelected.add(payload.monthly[j]);
+        }
+      }
+      this._syncScheduleValue(source || 'api');
+      this._render();
+    }
 
     destroy() {
       this.close();
