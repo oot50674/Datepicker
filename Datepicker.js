@@ -71,14 +71,6 @@
     );
   }
 
-  function clampDate(date, minDate, maxDate) {
-    if (!isValidDate(date)) return date;
-    let value = date;
-    if (isValidDate(minDate) && value < minDate) value = minDate;
-    if (isValidDate(maxDate) && value > maxDate) value = maxDate;
-    return value;
-  }
-
   function addDays(baseDate, days) {
     const d = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate());
     d.setDate(d.getDate() + days);
