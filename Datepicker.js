@@ -287,6 +287,9 @@
         scheduleWeeklyMulti: initialOptions.scheduleWeeklyMulti !== false,
         scheduleMonthlyMulti: initialOptions.scheduleMonthlyMulti !== false,
         onSelectSchedule: typeof initialOptions.onSelectSchedule === 'function' ? initialOptions.onSelectSchedule : null,
+        // Schedule header text options
+        weeklyHeaderText: initialOptions.weeklyHeaderText || null, // null means use default
+        monthlyHeaderText: initialOptions.monthlyHeaderText || null, // null means use default
       };
 
       // 스케줄 모드에서는 시간/범위 기능 비활성화
@@ -499,6 +502,10 @@
         this._buildWeeklyControls();
         this._buildWeeklyHeader();
       }
+      // Monthly header (optional)
+      if (this.options.scheduleMode === 'monthly') {
+        this._buildMonthlyHeader();
+      }
       // Hover leave handler for range preview
       var selfGrid = this;
       this.daysGrid.addEventListener('mouseleave', function () {
@@ -542,7 +549,8 @@
         if (this.weeklyHeaderElement) this.mainContainer.appendChild(this.weeklyHeaderElement);
         if (this.weeklyRow) this.mainContainer.appendChild(this.weeklyRow);
       } else if (this.options.scheduleMode === 'monthly') {
-        // monthly: only days grid (no header, no weekdays)
+        // monthly: header + days grid (no weekdays)
+        if (this.monthlyHeaderElement) this.mainContainer.appendChild(this.monthlyHeaderElement);
         this.mainContainer.appendChild(this.daysGrid);
       } else {
         this.mainContainer.appendChild(header);
@@ -665,12 +673,14 @@
     }
 
     _buildWeeklyHeader() {
-      var title = '';
-      try {
-        var isKo = String(getDefaultLocale()).startsWith('ko');
-        title = isKo ? '주간 스케줄 선택' : 'Weekly Schedule';
-      } catch (_) {
-        title = 'Weekly Schedule';
+      var title = this.options.weeklyHeaderText;
+      if (!title) {
+        try {
+          var isKo = String(getDefaultLocale()).startsWith('ko');
+          title = isKo ? '주간 스케줄 선택' : 'Weekly Schedule';
+        } catch (_) {
+          title = 'Weekly Schedule';
+        }
       }
       this.weeklyHeaderElement = createElement('div', 'dp-weekly-header');
       var left = createElement('div', 'dp-weekly-title');
@@ -679,6 +689,25 @@
       // 재사용 가능한 Clear/Today/D one 은 하단에 이미 존재하므로 우측은 비워둠
       this.weeklyHeaderElement.appendChild(left);
       this.weeklyHeaderElement.appendChild(right);
+    }
+
+    _buildMonthlyHeader() {
+      var title = this.options.monthlyHeaderText;
+      if (!title) {
+        try {
+          var isKo = String(getDefaultLocale()).startsWith('ko');
+          title = isKo ? '월간 스케줄 선택' : 'Monthly Schedule';
+        } catch (_) {
+          title = 'Monthly Schedule';
+        }
+      }
+      this.monthlyHeaderElement = createElement('div', 'dp-monthly-header');
+      var left = createElement('div', 'dp-monthly-title');
+      left.textContent = title;
+      var right = createElement('div', 'dp-header-right');
+      // 재사용 가능한 Clear/Today/Done 은 하단에 이미 존재하므로 우측은 비워둠
+      this.monthlyHeaderElement.appendChild(left);
+      this.monthlyHeaderElement.appendChild(right);
     }
 
     _updateWeeklyUI() {
@@ -1199,13 +1228,13 @@
     }
 
     _render() {
-      // Header month/year select sync
+      // 헤더 월/연도 선택 동기화
       this._syncMonthYearControls();
 
-      // Build days grid
+      // 날짜 그리드 생성
       this.daysGrid.textContent = '';
       if (this.options.scheduleMode === 'monthly') {
-        // Pure day-of-month grid 1..31
+        // 1~31일의 순수 일자 그리드
         for (let d = 1; d <= 31; d += 1) {
           const cell = createElement('button', 'dp-day', {
             type: 'button',
@@ -1221,13 +1250,11 @@
           this.daysGrid.appendChild(cell);
         }
         this._updateClock();
-        if (this.options.scheduleMode === 'weekly') this._updateWeeklyUI();
         return;
       }
       const firstDay = startOfMonth(this.currentViewMonth);
-      const lastDay = endOfMonth(this.currentViewMonth);
       const gridStart = startOfWeek(firstDay, this.options.firstDayOfWeek);
-      // Always render 6 weeks (42 days)
+      // 항상 6주(42일) 렌더링
       for (let i = 0; i < 42; i += 1) {
         const dayDate = addDays(gridStart, i);
         const isOutside = dayDate.getMonth() !== this.currentViewMonth.getMonth();
@@ -1257,27 +1284,9 @@
         if (isSelectedSingle) cell.classList.add('is-selected');
         if (isDisabled) cell.classList.add('is-disabled');
 
-        // Monthly schedule selection highlight
-        if (this.options.scheduleMode === 'monthly' && this.scheduleMonthlySelected && this.scheduleMonthlySelected.size > 0) {
-          var dom = dayDate.getDate();
-          if (!isDisabled && !isOutside && this.scheduleMonthlySelected.has(dom)) {
-            cell.classList.add('is-selected');
-            cell.setAttribute('aria-selected', 'true');
-          }
-        }
-
-        // Range selection rendering (initial highlighting; hover updates are incremental)
-        if (this.options.range && this.options.scheduleMode === 'none') {
-          // actual highlighting is done in _updateRangeHighlight()
-        }
-
         if (!isDisabled) {
           var selfCell = this;
-          if (this.options.scheduleMode === 'monthly') {
-            cell.addEventListener('click', function () {
-              if (!isOutside) selfCell._toggleMonthlyDay(dayDate.getDate(), true);
-            });
-          } else if (this.options.range) {
+          if (this.options.range) {
             cell.addEventListener('click', function () {
               selfCell._handleRangeClick(dayDate);
             });
@@ -1670,6 +1679,44 @@
       if (Object.prototype.hasOwnProperty.call(partial, 'scheduleMonthlyMulti')) {
         this.options.scheduleMonthlyMulti = partial.scheduleMonthlyMulti !== false;
       }
+      if (Object.prototype.hasOwnProperty.call(partial, 'weeklyHeaderText')) {
+        this.options.weeklyHeaderText = partial.weeklyHeaderText || null;
+        // Update existing header if it exists
+        if (this.weeklyHeaderElement && this.options.scheduleMode === 'weekly') {
+          var titleElement = this.weeklyHeaderElement.querySelector('.dp-weekly-title');
+          if (titleElement) {
+            var title = this.options.weeklyHeaderText;
+            if (!title) {
+              try {
+                var isKo = String(getDefaultLocale()).startsWith('ko');
+                title = isKo ? '주간 스케줄 선택' : 'Weekly Schedule';
+              } catch (_) {
+                title = 'Weekly Schedule';
+              }
+            }
+            titleElement.textContent = title;
+          }
+        }
+      }
+      if (Object.prototype.hasOwnProperty.call(partial, 'monthlyHeaderText')) {
+        this.options.monthlyHeaderText = partial.monthlyHeaderText || null;
+        // Update existing header if it exists
+        if (this.monthlyHeaderElement && this.options.scheduleMode === 'monthly') {
+          var titleElement = this.monthlyHeaderElement.querySelector('.dp-monthly-title');
+          if (titleElement) {
+            var title = this.options.monthlyHeaderText;
+            if (!title) {
+              try {
+                var isKo = String(getDefaultLocale()).startsWith('ko');
+                title = isKo ? '월간 스케줄 선택' : 'Monthly Schedule';
+              } catch (_) {
+                title = 'Monthly Schedule';
+              }
+            }
+            titleElement.textContent = title;
+          }
+        }
+      }
       if (Object.prototype.hasOwnProperty.call(partial, 'scheduleMode')) {
         var prevMode = this.options.scheduleMode || 'none';
         var nextMode = partial.scheduleMode || 'none';
@@ -1701,12 +1748,28 @@
               if (this.weeklyHeaderElement && !this.weeklyHeaderElement.parentNode) this.mainContainer.insertBefore(this.weeklyHeaderElement, this.footer);
               if (this.weeklyRow && !this.weeklyRow.parentNode) this.mainContainer.insertBefore(this.weeklyRow, this.footer);
             }
+          } else if (nextMode === 'monthly') {
+            if (!this.monthlyHeaderElement) {
+              this._buildMonthlyHeader();
+            }
+            if (this.mainContainer) {
+              // Remove calendar parts if attached
+              if (this.headerElement && this.headerElement.parentNode) this.headerElement.parentNode.removeChild(this.headerElement);
+              if (this.weekdaysRow && this.weekdaysRow.parentNode) this.weekdaysRow.parentNode.removeChild(this.weekdaysRow);
+              if (this.weeklyRow && this.weeklyRow.parentNode) this.weeklyRow.parentNode.removeChild(this.weeklyRow);
+              if (this.weeklyHeaderElement && this.weeklyHeaderElement.parentNode) this.weeklyHeaderElement.parentNode.removeChild(this.weeklyHeaderElement);
+              // Insert monthly header and days grid
+              if (this.monthlyHeaderElement && !this.monthlyHeaderElement.parentNode) this.mainContainer.insertBefore(this.monthlyHeaderElement, this.footer);
+              if (this.daysGrid && !this.daysGrid.parentNode) this.mainContainer.insertBefore(this.daysGrid, this.footer);
+            }
           } else {
-            // Leaving weekly: remove weekly row and re-attach calendar parts
+            // Leaving schedule mode: remove schedule parts and re-attach calendar parts
             if (this.weeklyRow && this.weeklyRow.parentNode) this.weeklyRow.parentNode.removeChild(this.weeklyRow);
             if (this.weeklyHeaderElement && this.weeklyHeaderElement.parentNode) this.weeklyHeaderElement.parentNode.removeChild(this.weeklyHeaderElement);
+            if (this.monthlyHeaderElement && this.monthlyHeaderElement.parentNode) this.monthlyHeaderElement.parentNode.removeChild(this.monthlyHeaderElement);
             this.weeklyRow = null;
             this.weeklyHeaderElement = null;
+            this.monthlyHeaderElement = null;
             if (this.mainContainer) {
               if (this.headerElement && !this.headerElement.parentNode) this.mainContainer.insertBefore(this.headerElement, this.footer);
               if (this.weekdaysRow && !this.weekdaysRow.parentNode) this.mainContainer.insertBefore(this.weekdaysRow, this.footer);

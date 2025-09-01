@@ -43,13 +43,15 @@
 .dp.has-clock .dp-content { grid-template-columns: 1fr 200px; }
 
 .dp-main { min-width: 260px; }
-.dp-weekly-header {
+.dp-weekly-header,
+.dp-monthly-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-bottom: 8px;
 }
-.dp-weekly-title { font-weight: 600; font-size: 14px; }
+.dp-weekly-title,
+.dp-monthly-title { font-weight: 600; font-size: 14px; }
 
 
 .dp * { box-sizing: border-box; }

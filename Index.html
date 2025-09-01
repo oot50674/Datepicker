@@ -130,17 +130,24 @@
 
         <div class="card span-12">
           <h3>스케줄 선택 (주간/월간)</h3>
+          <p class="note">주간: 요일 선택 (월=1, 화=2, 수=3, 목=4, 금=5, 토=6, 일=7)<br>월간: 날짜 선택 (1~31일)<br>브라우저 콘솔에서 선택 결과 확인 가능</p>
           <div class="grid" style="grid-template-columns: repeat(12, 1fr); gap: 12px;">
-            <div class="span-6">
+            <div class="span-4">
               <div class="field">
-                <div class="label"><span class="badge">주간</span> 배열 형식 출력</div>
+                <div class="label"><span class="badge">주간</span> 다중 선택</div>
                 <input id="dpWeekly" type="text" placeholder="1,3,5" />
               </div>
             </div>
-            <div class="span-6">
+            <div class="span-4">
               <div class="field">
-                <div class="label"><span class="badge">월간</span> 배열 형식 출력</div>
+                <div class="label"><span class="badge">월간</span> 다중 선택</div>
                 <input id="dpMonthly" type="text" placeholder="1,15,31" />
+              </div>
+            </div>
+            <div class="span-4">
+              <div class="field">
+                <div class="label"><span class="badge">주간</span> 단일 선택 모드</div>
+                <input id="dpWeeklySingle" type="text" placeholder="3" />
               </div>
             </div>
           </div>
@@ -218,29 +225,55 @@
         timeStep: 10
       });
 
-      // Weekly schedule demo
+      // Weekly schedule demo with custom header
       const dpWeekly = new DatePicker('#dpWeekly', {
         scheduleMode: 'weekly',
         scheduleWeeklyMulti: true,
         confirm: true,
+        weeklyHeaderText: '요일 선택하기', // 커스텀 헤더 텍스트
         onSelectSchedule: function(payload, ctx) {
-          // console.log('weekly array:', payload.array, 'set:', payload.weekly);
+          console.log('📅 주간 스케줄 선택:', payload.array, '요일들');
+          console.log('  → 월=1, 화=2, 수=3, 목=4, 금=5, 토=6, 일=7');
         }
       });
 
-      // Monthly schedule demo
+      // Monthly schedule demo with custom header
       const dpMonthly = new DatePicker('#dpMonthly', {
         scheduleMode: 'monthly',
         scheduleMonthlyMulti: true,
         confirm: true,
+        monthlyHeaderText: '날짜 선택하기', // 커스텀 헤더 텍스트
         onSelectSchedule: function(payload, ctx) {
-          // console.log('monthly array:', payload.array, 'set:', payload.monthly);
+          console.log('📅 월간 스케줄 선택:', payload.array, '일들');
+          console.log('  → 매월', payload.array.join(', '), '일');
         }
       });
 
-      // 초기 값 설정 예시 (배열 기반)
-      // dpWeekly.setSchedule({ weekly: [1, 3, 5] }); // 월, 수, 금
-      // dpMonthly.setSchedule({ monthly: [1, 15] }); // 1일, 15일
+      // Weekly single selection demo
+      const dpWeeklySingle = new DatePicker('#dpWeeklySingle', {
+        scheduleMode: 'weekly',
+        scheduleWeeklyMulti: false, // 단일 선택
+        confirm: true,
+        weeklyHeaderText: '요일 하나 선택하기',
+        onSelectSchedule: function(payload, ctx) {
+          console.log('📅 주간 단일 선택:', payload.array, '요일');
+          const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
+          const selectedDay = dayNames[payload.array[0] - 1] || '알 수 없음';
+          console.log('  → 선택된 요일:', selectedDay + '요일');
+        }
+      });
+
+      // 초기 값 설정 예시 (배열 기반) - 실제로 적용
+      setTimeout(() => {
+        dpWeekly.setSchedule({ weekly: [1, 3, 5] }); // 월, 수, 금
+        dpMonthly.setSchedule({ monthly: [1, 15, 31] }); // 1일, 15일, 31일
+        dpWeeklySingle.setSchedule({ weekly: [3] }); // 수요일만
+        console.log('✅ 초기 값이 설정되었습니다! 입력창을 클릭해서 확인해보세요.');
+        console.log('📝 데모 안내:');
+        console.log('  - 주간 다중: 월, 수, 금요일 선택됨');
+        console.log('  - 월간 다중: 1일, 15일 선택됨');
+        console.log('  - 주간 단일: 수요일 선택됨');
+      }, 1000);
     </script>
   </body>
   </html>
