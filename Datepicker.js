@@ -71,14 +71,6 @@
     );
   }
 
-  function clampDate(date, minDate, maxDate) {
-    if (!isValidDate(date)) return date;
-    let value = date;
-    if (isValidDate(minDate) && value < minDate) value = minDate;
-    if (isValidDate(maxDate) && value > maxDate) value = maxDate;
-    return value;
-  }
-
   function addDays(baseDate, days) {
     const d = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate());
     d.setDate(d.getDate() + days);
@@ -103,6 +95,11 @@
     const day = date.getDay();
     const diff = (day - firstDayOfWeek + 7) % 7;
     return addDays(date, -diff);
+  }
+
+  function endOfWeek(date, firstDayOfWeek) {
+    var start = startOfWeek(date, firstDayOfWeek);
+    return addDays(start, 6);
   }
 
   function buildWeekdayOrder(firstDayOfWeek) {
@@ -275,8 +272,6 @@
         enableTime: Boolean(initialOptions.enableTime),
         timeStep: Number(initialOptions.timeStep) > 0 ? Number(initialOptions.timeStep) : 5,
         showAnalogClock: Boolean(initialOptions.showAnalogClock),
-        showAnalogSeconds: false,
-        showAnalogNumbers: true,
         hour12: Boolean(initialOptions.hour12),
         inlineContainer: initialOptions.inlineContainer || null,
         range: Boolean(initialOptions.range),
@@ -494,8 +489,11 @@
       // Weekdays
       this.weekdaysRow = createElement('div', 'dp-weekdays', { role: 'row' });
 
-      // Days grid
-      this.daysGrid = createElement('div', 'dp-days', { role: 'grid' });
+      // Days grid (주간 모드에서는 생성하지 않음)
+      this.daysGrid = null;
+      if (this.options.scheduleMode !== 'weekly') {
+        this.daysGrid = createElement('div', 'dp-days', { role: 'grid' });
+      }
       // Weekly controls (optional)
       this.weeklyRow = null;
       if (this.options.scheduleMode === 'weekly') {
@@ -506,14 +504,16 @@
       if (this.options.scheduleMode === 'monthly') {
         this._buildMonthlyHeader();
       }
-      // Hover leave handler for range preview
-      var selfGrid = this;
-      this.daysGrid.addEventListener('mouseleave', function () {
-        if (selfGrid.options.range && selfGrid.hoveringDate) {
-          selfGrid.hoveringDate = null;
-          selfGrid._updateRangeHighlight();
-        }
-      });
+      // Hover leave handler for range preview (daysGrid가 있을 때만)
+      if (this.daysGrid) {
+        var selfGrid = this;
+        this.daysGrid.addEventListener('mouseleave', function () {
+          if (selfGrid.options.range && selfGrid.hoveringDate) {
+            selfGrid.hoveringDate = null;
+            selfGrid._updateRangeHighlight();
+          }
+        });
+      }
 
       // Time controls (optional)
       this.timeRow = null;
@@ -623,11 +623,9 @@
       this.clockFace = createElement('div', 'dp-clock-face');
       this.clockHourHand = createElement('div', 'dp-clock-hand dp-clock-hour');
       this.clockMinuteHand = createElement('div', 'dp-clock-hand dp-clock-minute');
-      this.clockSecondHand = createElement('div', 'dp-clock-hand dp-clock-second');
       this.clockCenter = createElement('div', 'dp-clock-center');
       this.clockFace.appendChild(this.clockHourHand);
       this.clockFace.appendChild(this.clockMinuteHand);
-      this.clockFace.appendChild(this.clockSecondHand);
       this.clockFace.appendChild(this.clockCenter);
 
       // Numbers (1..12)
@@ -854,12 +852,8 @@
       var secondBase = this.options.enableTime ? 0 : seconds;
       var hourDeg = (hours % 12) * 30 + minutes * 0.5 + secondBase / 120;
       var minuteDeg = minutes * 6 + secondBase * 0.1;
-      var secondDeg = seconds * 6;
       this.clockHourHand.style.transform = 'translateX(-50%) rotate(' + String(hourDeg) + 'deg)';
       this.clockMinuteHand.style.transform = 'translateX(-50%) rotate(' + String(minuteDeg) + 'deg)';
-      if (this.clockSecondHand) {
-        this.clockSecondHand.style.display = 'none';
-      }
     }
 
     _startClockTimer() {
@@ -1218,6 +1212,7 @@
     }
 
     _renderWeekdays() {
+      if (!this.weekdaysRow) return; // 주간 모드에서는 weekdaysRow가 없음
       this.weekdaysRow.textContent = '';
       const names = this.options.i18n.weekdays;
       names.forEach((n) => {
@@ -1231,9 +1226,11 @@
       // 헤더 월/연도 선택 동기화
       this._syncMonthYearControls();
 
-      // 날짜 그리드 생성
-      this.daysGrid.textContent = '';
-      if (this.options.scheduleMode === 'monthly') {
+      // 날짜 그리드 생성 (주간 모드에서는 daysGrid가 없으므로 스킵)
+      if (this.daysGrid) {
+        this.daysGrid.textContent = '';
+      }
+      if (this.options.scheduleMode === 'monthly' && this.daysGrid) {
         // 1~31일의 순수 일자 그리드
         for (let d = 1; d <= 31; d += 1) {
           const cell = createElement('button', 'dp-day', {
@@ -1252,61 +1249,63 @@
         this._updateClock();
         return;
       }
-      const firstDay = startOfMonth(this.currentViewMonth);
-      const gridStart = startOfWeek(firstDay, this.options.firstDayOfWeek);
-      // 항상 6주(42일) 렌더링
-      for (let i = 0; i < 42; i += 1) {
-        const dayDate = addDays(gridStart, i);
-        const isOutside = dayDate.getMonth() !== this.currentViewMonth.getMonth();
-        if (!this.options.showOutsideDays && isOutside) {
-          const filler = createElement('div', 'dp-day is-empty', { role: 'gridcell', 'aria-disabled': 'true' });
-          this.daysGrid.appendChild(filler);
-          continue;
-        }
-        const isToday = areSameCalendarDate(dayDate, new Date());
-        const isSelectedSingle = (this.options.scheduleMode === 'none' && !this.options.range && this.selectedDate)
-          ? areSameCalendarDate(dayDate, this.selectedDate)
-          : false;
-        const disabledByBounds = isDateOutOfBounds(dayDate, this.options.minDate, this.options.maxDate);
-        const disabledByFn = this.options.disableDates ? this.options.disableDates(dayDate) : false;
-        const isDisabled = disabledByBounds || Boolean(disabledByFn);
-
-        const cell = createElement('button', 'dp-day', {
-          type: 'button',
-          role: 'gridcell',
-          'aria-selected': String(isSelectedSingle),
-          'aria-disabled': String(isDisabled),
-          'data-date': toISODateString(dayDate),
-        });
-        cell.textContent = String(dayDate.getDate());
-        if (isOutside) cell.classList.add('is-outside');
-        if (isToday) cell.classList.add('is-today');
-        if (isSelectedSingle) cell.classList.add('is-selected');
-        if (isDisabled) cell.classList.add('is-disabled');
-
-        if (!isDisabled) {
-          var selfCell = this;
-          if (this.options.range) {
-            cell.addEventListener('click', function () {
-              selfCell._handleRangeClick(dayDate);
-            });
-            cell.addEventListener('mouseenter', function () {
-              if (selfCell.options.range && selfCell.rangeStart && !selfCell.rangeEnd) {
-                selfCell.hoveringDate = startOfDay(dayDate);
-                selfCell._updateRangeHighlight();
-              }
-            });
-          } else {
-            cell.addEventListener('click', function () {
-              selfCell._selectDate(dayDate, 'user');
-              if (!selfCell.options.confirm && selfCell.options.autoClose && !selfCell.options.inline && !selfCell.options.enableTime) selfCell.close();
-            });
+      if (this.daysGrid && this.options.scheduleMode === 'none') {
+        const firstDay = startOfMonth(this.currentViewMonth);
+        const gridStart = startOfWeek(firstDay, this.options.firstDayOfWeek);
+        // 항상 6주(42일) 렌더링
+        for (let i = 0; i < 42; i += 1) {
+          const dayDate = addDays(gridStart, i);
+          const isOutside = dayDate.getMonth() !== this.currentViewMonth.getMonth();
+          if (!this.options.showOutsideDays && isOutside) {
+            const filler = createElement('div', 'dp-day is-empty', { role: 'gridcell', 'aria-disabled': 'true' });
+            this.daysGrid.appendChild(filler);
+            continue;
           }
-        }
+          const isToday = areSameCalendarDate(dayDate, new Date());
+          const isSelectedSingle = (this.options.scheduleMode === 'none' && !this.options.range && this.selectedDate)
+            ? areSameCalendarDate(dayDate, this.selectedDate)
+            : false;
+          const disabledByBounds = isDateOutOfBounds(dayDate, this.options.minDate, this.options.maxDate);
+          const disabledByFn = this.options.disableDates ? this.options.disableDates(dayDate) : false;
+          const isDisabled = disabledByBounds || Boolean(disabledByFn);
 
-        this.daysGrid.appendChild(cell);
+          const cell = createElement('button', 'dp-day', {
+            type: 'button',
+            role: 'gridcell',
+            'aria-selected': String(isSelectedSingle),
+            'aria-disabled': String(isDisabled),
+            'data-date': toISODateString(dayDate),
+          });
+          cell.textContent = String(dayDate.getDate());
+          if (isOutside) cell.classList.add('is-outside');
+          if (isToday) cell.classList.add('is-today');
+          if (isSelectedSingle) cell.classList.add('is-selected');
+          if (isDisabled) cell.classList.add('is-disabled');
+
+          if (!isDisabled) {
+            var selfCell = this;
+            if (this.options.range) {
+              cell.addEventListener('click', function () {
+                selfCell._handleRangeClick(dayDate);
+              });
+              cell.addEventListener('mouseenter', function () {
+                if (selfCell.options.range && selfCell.rangeStart && !selfCell.rangeEnd) {
+                  selfCell.hoveringDate = startOfDay(dayDate);
+                  selfCell._updateRangeHighlight();
+                }
+              });
+            } else {
+              cell.addEventListener('click', function () {
+                selfCell._selectDate(dayDate, 'user');
+                if (!selfCell.options.confirm && selfCell.options.autoClose && !selfCell.options.inline && !selfCell.options.enableTime) selfCell.close();
+              });
+            }
+          }
+
+          this.daysGrid.appendChild(cell);
+        }
       }
-      if (this.options.range && this.options.scheduleMode === 'none') this._updateRangeHighlight();
+      if (this.options.range && this.options.scheduleMode === 'none' && this.daysGrid) this._updateRangeHighlight();
       this._updateClock();
       if (this.options.scheduleMode === 'weekly') this._updateWeeklyUI();
     }
